@@ -2,11 +2,9 @@
 The refdata module contains pure-element reference state data.
 """
 
-
-from symengine import And, Piecewise, Symbol, log, exp
 from pycalphad.variables import T
+from symengine import And, Piecewise, Symbol, log, exp
 from collections import OrderedDict
-
 
 def find_and_insert_user_refstate(entry_point_plugin_name='espei.reference_states', namespace=globals()):
   """Discover user reference states entered as a setuptools entry_point

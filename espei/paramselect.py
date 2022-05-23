@@ -27,7 +27,6 @@ import symengine
 from symengine import Symbol
 from tinydb import where
 import tinydb
-from pycalphad import Database, Model, variables as v
 
 import espei.refdata
 from espei.database_utils import initialize_database
@@ -39,6 +38,7 @@ from espei.parameter_selection.utils import get_data_quantities, feature_transfo
 from espei.sublattice_tools import generate_symmetric_group, generate_interactions, \
     tuplify, recursive_tuplify, interaction_test, endmembers_from_interaction, generate_endmembers
 from espei.utils import PickleableTinyDB, sigfigs, extract_aliases
+from pycalphad import Database, Model, variables as v
 
 _log = logging.getLogger(__name__)
 

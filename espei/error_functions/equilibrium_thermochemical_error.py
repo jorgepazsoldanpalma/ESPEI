@@ -212,6 +212,7 @@ def calc_prop_differences(eqpropdata: EqPropData,
 
     calculated_data = []
     for comp_conds in eqpropdata.composition_conds:
+
         cond_dict = OrderedDict(**pot_conds, **comp_conds)
         # str_statevar_dict must be sorted, assumes that pot_conds are.
         str_statevar_dict = OrderedDict([(str(key), vals) for key, vals in pot_conds.items()])
@@ -219,7 +220,6 @@ def calc_prop_differences(eqpropdata: EqPropData,
         multi_eqdata = _equilibrium(phase_records, cond_dict, grid)
         # TODO: could be kind of slow. Callables (which are cachable) must be built.
         propdata = _eqcalculate(dbf, species, phases, cond_dict, output, data=multi_eqdata, per_phase=False, callables=None, parameters=params_dict, model=models)
-
         if 'vertex' in propdata.data_vars[output][0]:
             raise ValueError(f"Property {output} cannot be used to calculate equilibrium thermochemical error because each phase has a unique value for this property.")
 

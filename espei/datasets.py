@@ -73,6 +73,9 @@ def check_dataset(dataset: Dataset):
     """
     is_equilibrium = 'solver' not in dataset.keys() and dataset['output'] != 'ZPF'
     is_activity = dataset['output'].startswith('ACR')
+    if is_activity is True:
+        activity_components=dataset['output'].split('_')
+        print('activity_components',activity_components)
     is_zpf = dataset['output'] == 'ZPF'
     is_single_phase = 'solver' in dataset.keys()
     if not any((is_equilibrium, is_single_phase, is_zpf)):
@@ -96,8 +99,10 @@ def check_dataset(dataset: Dataset):
     if is_equilibrium:
         conditions = dataset['conditions']
         comp_conditions = {k: v for k, v in conditions.items() if k.startswith('X_')}
-    if is_activity:
+    if is_activity and activity_components[1]!='COMP':
         ref_state = dataset['reference_state']
+    elif is_activity and activity_components[1]=='COMP':
+        pass
     elif is_equilibrium:
         for el, vals in dataset.get('reference_states', {}).items():
             if 'phase' not in vals:
@@ -330,6 +335,7 @@ def load_datasets(dataset_filenames, include_disabled=False) -> PickleableTinyDB
         with open(fname) as file_:
             try:
                 d = json.load(file_)
+                print('Checking in datasets',d['output'])
                 if not include_disabled and d.get('disabled', False):
                     # The dataset is disabled and not included
                     continue

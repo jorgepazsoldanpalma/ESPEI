@@ -232,7 +232,6 @@ class EmceeOptimizer(OptimizerBase):
         ctx = setup_context(self.dbf, ds, symbols, data_weights=mcmc_data_weights, phase_models=self.phase_models, make_callables=cbs)
         symbols_to_fit = ctx['symbols_to_fit']
         initial_guess = np.array([unpack_piecewise(self.dbf.symbols[s]) for s in symbols_to_fit])
-
         prior_dict = self.get_priors(prior, symbols_to_fit, initial_guess)
         ctx.update(prior_dict)
         ctx['zpf_kwargs']['approximate_equilibrium'] = approximate_equilibrium
@@ -303,6 +302,8 @@ class EmceeOptimizer(OptimizerBase):
         else:
             multi_phase_error = 0
         if equilibrium_thermochemical_kwargs is not None:
+#            print('yooo',equilibrium_thermochemical_kwargs,'this is killingme',activity_kwargs)
+
             eq_thermochemical_prob = calculate_equilibrium_thermochemical_probability(parameters=params, **equilibrium_thermochemical_kwargs)
         else:
             eq_thermochemical_prob = 0

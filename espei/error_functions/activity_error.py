@@ -10,11 +10,39 @@ from pycalphad import equilibrium, variables as v
 from pycalphad.plot.eqplot import _map_coord_to_variable
 from pycalphad.core.utils import filter_phases, unpack_components
 from scipy.stats import norm
-
+from sympy import exp, log, Abs, Add, And, Float, Mul, Piecewise, Pow, S
 from espei.core_utils import ravel_conditions
 
 _log = logging.getLogger(__name__)
 
+def calculating_pseudo_line(elemental_composition,defined_components,component_fractions):
+
+#    pseudo_line=component_ratio(defined_components)    
+    pseudo_line=defined_components
+    dependent_comp=1-sum([i for i in component_fractions.values()])
+    for key,value in defined_components.items():
+        if key not in component_fractions:   
+            component_fractions[key]=dependent_comp
+    final_amount={}
+    tot_moles=S.Zero
+    for i in elemental_composition:
+        fun_list=[]
+        for comp,value in component_fractions.items():
+            for new_comp,new_value in pseudo_line[comp].items():
+                if i==new_comp:
+                    comp_pseu=v.X(i)
+#                    comp_pseu=literal_eval(comp_pseu)
+                    fun_list.append(value*new_value)
+                    final_fun_list=sum(fun_list)
+                    final_amount[i]=final_fun_list
+                    tot_moles+=value*new_value
+    
+    for final_comp,final_value in final_amount.items():
+        final_amount[final_comp]=final_value/tot_moles
+    
+    component_fractions.popitem()
+    
+    return final_amount
 
 def target_chempots_from_activity(component, target_activity, temperatures, reference_result):
     """
@@ -38,8 +66,12 @@ def target_chempots_from_activity(component, target_activity, temperatures, refe
     """
     # acr_i = exp((mu_i - mu_i^{ref})/(RT))
     # so mu_i = R*T*ln(acr_i) + mu_i^{ref}
-    ref_chempot = reference_result["MU"].sel(component=component).values.flatten()
-    return v.R * temperatures * np.log(target_activity) + ref_chempot
+    if isinstance(component,str)==True:
+        ref_chempot = reference_result["MU"].sel(component=component).values.flatten()
+    else:
+        ref_chempot=[sto*reference_result.MU.sel(component=spec).values.flatten()[0] for spec,sto in component[list(set(component.keys()))[0]].items()] 
+#    print(v.R,temperatures,np.log(target_activity),sum(ref_chempot))
+    return v.R * temperatures * np.log(target_activity) + sum(ref_chempot)
 
 
 def chempot_error(sample_chempots, target_chempots, std_dev=10.0):
@@ -118,19 +150,48 @@ def calculate_activity_error(dbf, comps, phases, datasets, parameters=None, phas
     error = 0
     if len(activity_datasets) == 0:
         return error
-
+    
     for ds in activity_datasets:
-        acr_component = ds['output'].split('_')[1]  # the component of interest
-        # calculate the reference state equilibrium
-        ref = ds['reference_state']
+        acr_def_component=ds['output'].split('_')[1]  # the component of interest
+        data_comps = ds['components']
+        def_com_ref_condition={}
+        if acr_def_component!='COMP':
+            # calculate the reference state equilibrium
+            ref = ds['reference_state']
+            ref_conditions = {_map_coord_to_variable(coord): val for coord, val in ref['conditions'].items()}
+            ref_result = equilibrium(dbf, data_comps, ref['phases'], ref_conditions,
+                                     model=phase_models, parameters=parameters,
+                                     callables=callables)
+        else:
+
+            checking_comment=ds['comment']
+            checking_comment=checking_comment.split('_')
+            ele_stoich=[]
+            ele=[]
+            for i in checking_comment:
+
+                if i not in ds['components']:
+                    ele_stoich.append(float(i))
+                else:
+                    ele.append(i)
+
+            def_com_ref_condition[v.N]=1
+            def_com_ref_condition[v.T]=ds['conditions']['T']
+            def_com_ref_condition[v.P]=ds['conditions']['P']
+            defined_comp=ds['output'].split('_')
+            del defined_comp[0]
+            del defined_comp[0]
+            end_member_comp=[i/sum(ele_stoich) for i in ele_stoich]
+            for index in range(len(ele)-1):                
+                def_com_ref_condition[v.X(ele[index])]=end_member_comp[index]
+            ref_result = equilibrium(dbf, ele, ds['phases'], def_com_ref_condition,
+                                     model=phase_models, parameters=parameters,
+                                     callables=callables, calc_opts={'pdens': 500})
+            ref_result_check=np.squeeze(ref_result.GM.values).tolist()
+
         # data_comps and data_phases ensures that we only do calculations on
         # the subsystem of the system defining the data.
-        data_comps = ds['components']
         data_phases = filter_phases(dbf, unpack_components(dbf, data_comps), candidate_phases=phases)
-        ref_conditions = {_map_coord_to_variable(coord): val for coord, val in ref['conditions'].items()}
-        ref_result = equilibrium(dbf, data_comps, ref['phases'], ref_conditions,
-                                 model=phase_models, parameters=parameters,
-                                 callables=callables)
 
         # calculate current chemical potentials
         # get the conditions
@@ -151,20 +212,34 @@ def calculate_activity_error(dbf, comps, phases, datasets, parameters=None, phas
         # assume now that the ravelled conditions all have the same size
         conditions_list = [{c: conditions[c][i] for c in conditions.keys()} for i in range(len(conditions[v.T]))]
         current_chempots = []
-        for conds in conditions_list:
-            sample_eq_res = equilibrium(dbf, data_comps, data_phases, conds,
-                                        model=phase_models, parameters=parameters,
-                                        callables=callables)
-            current_chempots.append(sample_eq_res.MU.sel(component=acr_component).values.flatten()[0])
-        current_chempots = np.array(current_chempots)
+        acr_component={}
+        acr_component[ds['output'].split('_')[2]]={}
+        for k,l in zip(ele,ele_stoich):
+            acr_component[ds['output'].split('_')[2]][k]=l
+#        def_comp_ele_chem_pot=new_components[defined_comp[0]]
+        if acr_def_component!='COMP':
+            for conds in conditions_list:
+                sample_eq_res = equilibrium(dbf, data_comps, data_phases, conds,model=phase_models, parameters=parameters,
+                            callables=callables)
+                current_chempots.append(sample_eq_res.MU.sel(component=acr_def_component).values.flatten()[0]) 
+        else:
+            for conds in conditions_list:
+                sample_eq_res = equilibrium(dbf, data_comps, data_phases, conds,model=phase_models, parameters=parameters,
+                            callables=callables, calc_opts={'pdens': 2000})
+#                acr_component=def_comp_ele_chem_pot
+                chem_pot_defined_comp=[sto*sample_eq_res.MU.sel(component=spec).values.flatten()[0] for spec,sto in zip(ele,ele_stoich)]
 
+            current_chempots.append(sum(chem_pot_defined_comp))
+            current_chempots = np.array(current_chempots)
         # calculate target chempots
+             
         samples = np.array(ds['values']).flatten()
         target_chempots = target_chempots_from_activity(acr_component, samples, conditions[v.T], ref_result)
         # calculate the error
         weight = ds.get('weight', 1.0)
         pe = chempot_error(current_chempots, target_chempots, std_dev=std_dev/data_weight/weight)
         error += np.sum(pe)
+
         _log.debug('Data: %s, chemical potential difference: %s, probability: %s, reference: %s', samples, current_chempots-target_chempots, pe, ds["reference"])
 
     # TODO: write a test for this

@@ -225,7 +225,7 @@ def run_espei(run_settings):
         # get a Database
         if mcmc_settings.get('input_db'):
             dbf = Database(mcmc_settings.get('input_db'))
-
+        
         # load the restart trace if needed
         if mcmc_settings.get('restart_trace'):
             restart_trace = np.load(mcmc_settings.get('restart_trace'))
@@ -303,7 +303,6 @@ def main():
             input_settings = json.load(f)
     else:
         raise ValueError('Unknown file type %s for input file %s. YAML and JSON are supported', ext, input_file)
-
     run_espei(input_settings)
 
 

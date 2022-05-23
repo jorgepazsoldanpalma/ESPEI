@@ -112,6 +112,7 @@ def optimal_parameters(trace_array, lnprob_array, kth=0):
         # find the next set of parameters parameters
         candidate_index = np.argpartition(-lnprob_array[nz], i)[i]
         candidate_params = trace_array[nz][candidate_index]
+        print('candidate index',candidate_index,candidate_params)
         # if the parameters are unique, make them the new unique parameters
         if np.any(candidate_params != unique_params):
             unique_params = candidate_params
