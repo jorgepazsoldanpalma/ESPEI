@@ -211,6 +211,7 @@ def calculate_activity_error(dbf, comps, phases, datasets, parameters=None, phas
         # invert the conditions dicts to make a list of condition dicts rather than a condition dict of lists
         # assume now that the ravelled conditions all have the same size
         conditions_list = [{c: conditions[c][i] for c in conditions.keys()} for i in range(len(conditions[v.T]))]
+        trouble_shooting_reference_phase=ds['phases']
         current_chempots = []
         acr_component={}
         acr_component[ds['output'].split('_')[2]]={}
@@ -225,10 +226,12 @@ def calculate_activity_error(dbf, comps, phases, datasets, parameters=None, phas
         else:
             for conds in conditions_list:
                 sample_eq_res = equilibrium(dbf, data_comps, data_phases, conds,model=phase_models, parameters=parameters,
-                            callables=callables, calc_opts={'pdens': 2000})
+                            callables=callables, calc_opts={'pdens': 500})
+                if np.isnan(sample_eq_res.GM)==True:
+                    sample_eq_res = equilibrium(dbf, data_comps, trouble_shooting_reference_phase, conds,model=phase_models, parameters=parameters,
+                            callables=callables, calc_opts={'pdens': 500})
 #                acr_component=def_comp_ele_chem_pot
                 chem_pot_defined_comp=[sto*sample_eq_res.MU.sel(component=spec).values.flatten()[0] for spec,sto in zip(ele,ele_stoich)]
-
             current_chempots.append(sum(chem_pot_defined_comp))
             current_chempots = np.array(current_chempots)
         # calculate target chempots
