@@ -66,6 +66,7 @@ def target_chempots_from_activity(component, target_activity, temperatures, refe
     """
     # acr_i = exp((mu_i - mu_i^{ref})/(RT))
     # so mu_i = R*T*ln(acr_i) + mu_i^{ref}
+    print('Nothing to see here buddy',component,type(component))
     if isinstance(component,str)==True:
         ref_chempot = reference_result["MU"].sel(component=component).values.flatten()
     else:
@@ -153,6 +154,7 @@ def calculate_activity_error(dbf, comps, phases, datasets, parameters=None, phas
     
     for ds in activity_datasets:
         acr_def_component=ds['output'].split('_')[1]  # the component of interest
+        print('What the hell man?!',acr_def_component)
         data_comps = ds['components']
         def_com_ref_condition={}
         if acr_def_component!='COMP':
@@ -213,9 +215,12 @@ def calculate_activity_error(dbf, comps, phases, datasets, parameters=None, phas
         conditions_list = [{c: conditions[c][i] for c in conditions.keys()} for i in range(len(conditions[v.T]))]
         current_chempots = []
         acr_component={}
-        acr_component[ds['output'].split('_')[2]]={}
-        for k,l in zip(ele,ele_stoich):
-            acr_component[ds['output'].split('_')[2]][k]=l
+        if acr_def_component=='COMP':
+            acr_component[ds['output'].split('_')[2]]={}
+            for k,l in zip(ele,ele_stoich):
+                acr_component[ds['output'].split('_')[2]][k]=l
+        else:
+            pass
 #        def_comp_ele_chem_pot=new_components[defined_comp[0]]
         if acr_def_component!='COMP':
             for conds in conditions_list:
@@ -234,8 +239,11 @@ def calculate_activity_error(dbf, comps, phases, datasets, parameters=None, phas
         # calculate target chempots
              
         samples = np.array(ds['values']).flatten()
-        target_chempots = target_chempots_from_activity(acr_component, samples, conditions[v.T], ref_result)
-        # calculate the error
+        if acr_def_component=='COMP': 
+            target_chempots = target_chempots_from_activity(acr_component, samples, conditions[v.T], ref_result)
+        else:
+            target_chempots = target_chempots_from_activity(acr_def_component
+                                                            , samples, conditions[v.T], ref_result)           # calculate the error
         weight = ds.get('weight', 1.0)
         pe = chempot_error(current_chempots, target_chempots, std_dev=std_dev/data_weight/weight)
         error += np.sum(pe)

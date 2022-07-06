@@ -26,7 +26,7 @@ setup(
         'importlib_metadata',  # drop for Python>=3.8
         'matplotlib',
         'numpy>=1.20',
-        'pycalphad>=0.10.0',
+        'pycalphad>=0.10.1',
         'pyyaml',
         'setuptools_scm[toml]>=6.0',
         'scikit-learn>=1.0',
@@ -61,7 +61,6 @@ setup(
         'License :: OSI Approved :: MIT License',
 
         'Programming Language :: Python :: 3',
-        'Programming Language :: Python :: 3.7',
         'Programming Language :: Python :: 3.8',
         'Programming Language :: Python :: 3.9',
         'Programming Language :: Python :: 3.10',
