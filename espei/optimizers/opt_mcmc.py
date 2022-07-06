@@ -10,7 +10,6 @@ from espei.priors import PriorSpec, build_prior_specs
 from espei.utils import unpack_piecewise, optimal_parameters
 from espei.error_functions.context import setup_context
 from .opt_base import OptimizerBase
-from .graph import OptNode
 
 _log = logging.getLogger(__name__)
 
@@ -174,10 +173,8 @@ class EmceeOptimizer(OptimizerBase):
                 if (i + 1) % self.save_interval == 0:
                     self.save_sampler_state()
                     _log.trace('Acceptance ratios for parameters: %s', self.sampler.acceptance_fraction)
-                n = int((progbar_width + 1) * float(i) / iterations)
+                n = int((progbar_width) * float(i + 1) / iterations)
                 _log.info("\r[%s%s] (%d of %d)\n", '#' * n, ' ' * (progbar_width - n), i + 1, iterations)
-            n = int((progbar_width + 1) * float(i + 1) / iterations)
-            _log.info("\r[%s%s] (%d of %d)\n", '#' * n, ' ' * (progbar_width - n), i + 1, iterations)
         except KeyboardInterrupt:
             pass
         _log.info('MCMC complete.')
@@ -223,7 +220,7 @@ class EmceeOptimizer(OptimizerBase):
 
         Returns
         -------
-        OptNode
+        Dict[str, float]
 
         """
         # Set NumPy print options so logged arrays print on one line. Reset at the end.
@@ -234,8 +231,10 @@ class EmceeOptimizer(OptimizerBase):
         initial_guess = np.array([unpack_piecewise(self.dbf.symbols[s]) for s in symbols_to_fit])
         prior_dict = self.get_priors(prior, symbols_to_fit, initial_guess)
         ctx.update(prior_dict)
-        ctx['zpf_kwargs']['approximate_equilibrium'] = approximate_equilibrium
-        ctx['equilibrium_thermochemical_kwargs']['approximate_equilibrium'] = approximate_equilibrium
+        if 'zpf_kwargs' in ctx:
+            ctx['zpf_kwargs']['approximate_equilibrium'] = approximate_equilibrium
+        if 'equilibrium_thermochemical_kwargs' in ctx:
+            ctx['equilibrium_thermochemical_kwargs']['approximate_equilibrium'] = approximate_equilibrium
         # Run the initial parameters for guessing purposes:
         _log.trace("Probability for initial parameters")
         self.predict(initial_guess, **ctx)
@@ -262,7 +261,7 @@ class EmceeOptimizer(OptimizerBase):
         _log.trace('Change in parameters: %s', np.abs(initial_guess - optimal_params) / initial_guess)
         parameters = dict(zip(symbols_to_fit, optimal_params))
         np.set_printoptions(linewidth=75)
-        return OptNode(parameters, ds)
+        return parameters
 
     @staticmethod
     def predict(params, **ctx):
