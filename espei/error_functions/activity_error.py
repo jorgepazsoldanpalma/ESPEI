@@ -8,10 +8,11 @@ import numpy as np
 import tinydb
 from pycalphad import equilibrium, variables as v
 from pycalphad.plot.eqplot import _map_coord_to_variable
-from pycalphad.core.utils import filter_phases, unpack_components
+from pycalphad.core.utils import filter_phases, unpack_components, instantiate_models
 from scipy.stats import norm
 from sympy import exp, log, Abs, Add, And, Float, Mul, Piecewise, Pow, S
 from espei.core_utils import ravel_conditions
+from pycalphad.codegen.callables import build_phase_records
 
 _log = logging.getLogger(__name__)
 
@@ -66,7 +67,6 @@ def target_chempots_from_activity(component, target_activity, temperatures, refe
     """
     # acr_i = exp((mu_i - mu_i^{ref})/(RT))
     # so mu_i = R*T*ln(acr_i) + mu_i^{ref}
-    print('Nothing to see here buddy',component,type(component))
     if isinstance(component,str)==True:
         ref_chempot = reference_result["MU"].sel(component=component).values.flatten()
     else:
@@ -154,7 +154,6 @@ def calculate_activity_error(dbf, comps, phases, datasets, parameters=None, phas
     
     for ds in activity_datasets:
         acr_def_component=ds['output'].split('_')[1]  # the component of interest
-        print('What the hell man?!',acr_def_component)
         data_comps = ds['components']
         def_com_ref_condition={}
         if acr_def_component!='COMP':
