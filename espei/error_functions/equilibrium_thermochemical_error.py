@@ -4,9 +4,10 @@ Calculate error due to equilibrium thermochemical properties.
 
 import logging
 from collections import OrderedDict
-from typing import NamedTuple, Sequence, Dict, Optional, Tuple, Type
+from typing import Dict, List, NamedTuple, Optional, Sequence, Tuple, Type, Union
 
 import numpy as np
+import numpy.typing as npt
 import tinydb
 from tinydb import where
 from scipy.stats import norm
@@ -17,8 +18,13 @@ from pycalphad.codegen.callables import build_phase_records
 from pycalphad.core.utils import instantiate_models, filter_phases, extract_parameters, unpack_components, unpack_condition
 from pycalphad.core.phase_rec import PhaseRecord
 
-from espei.utils import PickleableTinyDB
+from espei.error_functions.residual_base import ResidualFunction, residual_function_registry
+from espei.phase_models import PhaseModelSpecification
 from espei.shadow_functions import equilibrium_, calculate_, no_op_equilibrium_, update_phase_record_parameters
+from espei.typing import SymbolName
+from espei.utils import PickleableTinyDB, database_symbols_to_fit
+from pycalphad.plot.eqplot import _map_coord_to_variable
+from pycalphad.core.light_dataset import LightDataset
 
 _log = logging.getLogger(__name__)
 
@@ -95,7 +101,6 @@ def build_eqpropdata(data: tinydb.database.Document,
     data['conditions'].setdefault('N', 1.0)  # Add default for N. Nothing else is supported in pycalphad anyway.
     pot_conds = OrderedDict([(getattr(v, key), unpack_condition(data['conditions'][key])) for key in sorted(data['conditions'].keys()) if not key.startswith('X_')])
     comp_conds = OrderedDict([(v.X(key[2:]), unpack_condition(data['conditions'][key])) for key in sorted(data['conditions'].keys()) if key.startswith('X_')])
-
     phase_records = build_phase_records(dbf, species, data_phases, {**pot_conds, **comp_conds}, models, parameters=parameters, build_gradients=True, build_hessians=True)
 
     # Now we need to unravel the composition conditions
@@ -197,7 +202,6 @@ def calc_prop_differences(eqpropdata: EqPropData,
         _equilibrium = no_op_equilibrium_
     else:
         _equilibrium = equilibrium_
-
     dbf = eqpropdata.dbf
     species = eqpropdata.species
     phases = eqpropdata.phases
@@ -224,6 +228,7 @@ def calc_prop_differences(eqpropdata: EqPropData,
             raise ValueError(f"Property {output} cannot be used to calculate equilibrium thermochemical error because each phase has a unique value for this property.")
 
         vals = getattr(propdata, output).flatten().tolist()
+
         calculated_data.extend(vals)
 
     calculated_data = np.array(calculated_data, dtype=np.float_)
@@ -276,3 +281,49 @@ def calculate_equilibrium_thermochemical_probability(eq_thermochemical_data: Seq
     weights = np.concatenate(weights, axis=0)
     probs = norm(loc=0.0, scale=weights).logpdf(differences)
     return np.sum(probs)
+
+
+class EquilibriumPropertyResidual(ResidualFunction):
+    def __init__(
+        self,
+        database: Database,
+        datasets: PickleableTinyDB,
+        phase_models: Union[PhaseModelSpecification, None],
+        symbols_to_fit: Optional[List[SymbolName]] = None,
+        weight: Optional[Dict[str, float]] = None,
+        ):
+        super().__init__(database, datasets, phase_models, symbols_to_fit)
+
+        if weight is not None:
+            self.weight = weight
+        else:
+            self.weight = {}
+
+        if phase_models is not None:
+            comps = sorted(phase_models.components)
+            model_dict = phase_models.get_model_dict()
+        else:
+            comps = sorted(database.elements)
+            model_dict = dict()
+        phases = sorted(filter_phases(database, unpack_components(database, comps), database.phases.keys()))
+        if symbols_to_fit is None:
+            symbols_to_fit = database_symbols_to_fit(database)
+        # okay if parameters are initialized to zero, we only need the symbol names
+        parameters = dict(zip(symbols_to_fit, [0]*len(symbols_to_fit)))
+        self.property_data = get_equilibrium_thermochemical_data(database, comps, phases, datasets, model_dict, parameters, data_weight_dict=self.weight)
+
+    def get_residuals(self, parameters: npt.ArrayLike) -> Tuple[List[float], List[float]]:
+        residuals = []
+        weights = []
+        for data in self.property_data:
+            dataset_residuals, dataset_weights = calc_prop_differences(data, parameters)
+            residuals.extend(dataset_residuals.tolist())
+            weights.extend(dataset_weights.tolist())
+        return residuals, weights
+
+    def get_likelihood(self, parameters) -> float:
+        likelihood = calculate_equilibrium_thermochemical_probability(self.property_data, parameters)
+        return likelihood
+
+
+residual_function_registry.register(EquilibriumPropertyResidual)

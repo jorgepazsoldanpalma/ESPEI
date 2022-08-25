@@ -101,7 +101,7 @@ def check_dataset(dataset: Dataset):
     if is_activity and activity_components[1]!='COMP':
         ref_state = dataset['reference_state']
     elif is_activity and activity_components[1]=='COMP':
-        pass
+        components=[def_comp for def_comp in dataset['defined_components'].keys()]   
     elif is_equilibrium:
         for el, vals in dataset.get('reference_states', {}).items():
             if 'phase' not in vals:

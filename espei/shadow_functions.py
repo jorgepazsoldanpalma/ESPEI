@@ -144,6 +144,7 @@ def equilibrium_(phase_records: Dict[str, PhaseRecord],
     conditions = _adjust_conditions(conditions)
     str_conds = OrderedDict([(str(ky), conditions[ky]) for ky in sorted(conditions.keys(), key=str)])
     start_point = starting_point(conditions, statevars, phase_records, grid)
+
     return _solve_eq_at_conditions(start_point, phase_records, grid, str_conds, statevars, False)
 
 
