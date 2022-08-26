@@ -183,7 +183,6 @@ def get_activity_data(dbf: Database, comps: Sequence[str],
             , build_gradients=True
             , build_hessians=True)            
             
-#        comp_conds = OrderedDict([(v.X(key[2:]), unpack_condition(converted_ref_compositions[key])) for key,val in sorted(converted_ref_compositions.items()) if key.startswith('X_') and val!=0.0 and key[2:] in depend_unary_copmponents])
         data_ref=data['reference']
         
         
@@ -307,6 +306,7 @@ def calc_difference_activity(activity_data: Sequence[Dict[str, Any]],
         dataset_state_var=data['Chem_Potential'].potential_conds
         Temp=dataset_state_var['T']
         samples=data['samples']
+        print('I am her enow',samples)
         samples=[v.R*Temp*np.log(i) for i in samples]
         
         ref_cond_dict=data['ref_cond_dict']        
@@ -510,6 +510,9 @@ def calculate_activity_error(activity_data: Sequence[Dict[str, Any]],
                         data_weight: int = 1.0,
                         approximate_equilibrium: bool = False) -> float:
                         
+    if len(activity_data) == 0:
+        return 0.0
+                        
     residuals, weights = calc_difference_activity(activity_data, parameters)
     likelihood = np.sum(norm(0, scale=weights).logpdf(residuals))
     if np.isnan(likelihood):
@@ -602,25 +605,25 @@ class ActivityResidual(ResidualFunction):
             symbols_to_fit = database_symbols_to_fit(database)
         self._symbols_to_fit = symbols_to_fit
 
-        self._activity_likelihood_kwargs = {
-            "dbf": database, "comps": comps, "phases": phases, "datasets": datasets,
-            "phase_models": model_dict,
-            "callables": None,
-            "data_weight": self.weight,
-        }
-        
+
+#        self._activity_likelihood_kwargs = {
+#            "dbf": database, "comps": comps, "phases": phases, "datasets": datasets,
+#            "phase_models": model_dict,
+#            "callables": None,
+#            "data_weight": self.weight,
+#        }
+
+
 ###JORGE IS ADDING LINES HERE
         parameters = dict(zip(symbols_to_fit, [0]*len(symbols_to_fit)))
         self.activity_data = get_activity_data(database, comps, phases, datasets, model_dict, parameters, data_weight_dict=self.weight)
 ############################################        
 
     def get_residuals(self, parameters: npt.ArrayLike) -> Tuple[List[float], List[float]]:
-#        parameters = {param_name: param for param_name, param in zip(self._symbols_to_fit, parameters.tolist())}
         residuals, weights =calc_difference_activity(self.activity_data, parameters)
         return residuals, weights
 
     def get_likelihood(self, parameters: npt.NDArray) -> float:
-#        parameters = {param_name: param for param_name, param in zip(self._symbols_to_fit, parameters.tolist())}
         likelihood = calculate_activity_error(self.activity_data,parameters=parameters, data_weight=self.weight)
         return likelihood
 
