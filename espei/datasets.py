@@ -75,6 +75,8 @@ def check_dataset(dataset: Dataset):
     is_activity = dataset['output'].startswith('ACR')
     if is_activity is True:
         activity_components=dataset['output'].split('_')
+    if is_equilibrium is True:
+        is_equilib_pseudo=dataset['output'].split('_')
     is_zpf = dataset['output'] == 'ZPF'
     is_single_phase = 'solver' in dataset.keys()
     if not any((is_equilibrium, is_single_phase, is_zpf)):
@@ -95,9 +97,12 @@ def check_dataset(dataset: Dataset):
             sublattice_occupancies = [None]*len(sublattice_configurations)
         elif sublattice_occupancies is None:
             raise DatasetError('At least one sublattice in the following sublattice configurations is mixing, but the "sublattice_occupancies" key is empty: {}'.format(sublattice_configurations))
-    if is_equilibrium:
+    if is_equilibrium and len(is_equilib_pseudo)<=2:
         conditions = dataset['conditions']
         comp_conditions = {k: v for k, v in conditions.items() if k.startswith('X_')}
+    if is_equilibrium and len(is_equilib_pseudo)>2 and is_equilib_pseudo[2]=='COMP':
+        components=[def_comp for def_comp in dataset['defined_components'].keys()]  
+        comp_conditions = {k: v for k, v in conditions.items() if k.startswith('X_')}        
     if is_activity and activity_components[1]!='COMP':
         ref_state = dataset['reference_state']
     elif is_activity and activity_components[1]=='COMP':

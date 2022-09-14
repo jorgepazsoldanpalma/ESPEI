@@ -290,7 +290,8 @@ def calc_difference_activity(activity_data: Sequence[Dict[str, Any]],
         _equilibrium = no_op_equilibrium_
     else:
         _equilibrium = equilibrium_
-
+    act_diff=[]
+    weights_=[]
     for data in activity_data:
         activity_error=[]
         data_weights=[]
@@ -306,7 +307,6 @@ def calc_difference_activity(activity_data: Sequence[Dict[str, Any]],
         dataset_state_var=data['Chem_Potential'].potential_conds
         Temp=dataset_state_var['T']
         samples=data['samples']
-        print('I am her enow',samples)
         samples=[v.R*Temp*np.log(i) for i in samples]
         
         ref_cond_dict=data['ref_cond_dict']        
@@ -368,9 +368,10 @@ def calc_difference_activity(activity_data: Sequence[Dict[str, Any]],
 ##############################################################
         differences = calculated_data - samples
         output=calculated_data.flatten().tolist()
-#        print('These are the differences my dude',differences)
         _log.debug('Output: %s differences: %s, weights: %s, reference: %s', output, differences, weight, dataset_ref)
-    return differences, weight
+        act_diff.append(differences)
+        weights_.append(np.array(weight))
+    return act_diff, weights_
         
 # TODO: roll this function into ActivityResidual
 def calculate_activity_residuals(dbf, comps, phases, datasets, parameters=None, phase_models=None, callables=None, data_weight=1.0) -> Tuple[List[float], List[float]]:
@@ -512,9 +513,9 @@ def calculate_activity_error(activity_data: Sequence[Dict[str, Any]],
                         
     if len(activity_data) == 0:
         return 0.0
-                        
     residuals, weights = calc_difference_activity(activity_data, parameters)
-    likelihood = np.sum(norm(0, scale=weights).logpdf(residuals))
+
+    likelihood = np.sum(norm(0, scale=data_weight).logpdf(residuals))
     if np.isnan(likelihood):
 #        # TODO: revisit this case and evaluate whether it is resonable for NaN
         # to show up here. When this comment was written, the test
