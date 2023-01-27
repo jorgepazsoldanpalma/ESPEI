@@ -112,7 +112,6 @@ def get_activity_data(dbf: Database, comps: Sequence[str],
         potential_conds={key:val for key,val in activity_conditions.items() if key=="T" or key=="P"}
         potential_conds.setdefault('N', 1.0)
         comp_conds={key:val for key,val in activity_conditions.items() if key!="T" and key!="P"}
-        
         ref_conditions=data['reference_state']['conditions']
         ref_compositions={key.split('_')[1]:val for key,val in ref_conditions.items() if key!="T" and key!="P"}
         Chem_Pot_ref_potential={key:value for key,value in ref_conditions.items() if not key.startswith('X_')}
@@ -122,7 +121,7 @@ def get_activity_data(dbf: Database, comps: Sequence[str],
         
   
         
-####The reason Jorge added len_components is in cade multiple different defined compositions are provided###
+####The reason Jorge added len_components is in case multiple different defined compositions are provided###
         len_components=list(set([len(comps) for comps in comp_conds.values()]))[0]
         lst_def_component_comps=[]
         if data_defined_components=='COMP':
@@ -131,6 +130,7 @@ def get_activity_data(dbf: Database, comps: Sequence[str],
             reference_stoich=defined_components[first_defined_component]
             converted_ref_compositions=calculating_pseudo_line(data_comps,defined_components,ref_compositions)
             defined_unary_components=[key.split('_')[1] for key,val in converted_ref_compositions.items() if val>0.0]
+            
             depend_unary_copmponents=sorted(defined_unary_components)[:-1]     
             ref_comp_conds = OrderedDict([(v.X(key[2:]), unpack_condition(converted_ref_compositions[key])) for key,val in sorted(converted_ref_compositions.items()) if key.startswith('X_') and val!=0.0 and key[2:] in depend_unary_copmponents])
             def_comp_species=sorted(unpack_components(dbf, defined_unary_components), key=str)
@@ -256,7 +256,6 @@ def target_chempots_from_activity(component, target_activity, temperatures, refe
         ref_chempot = reference_result["MU"].sel(component=component).values.flatten()
     else:
         ref_chempot=[sto*reference_result.MU.sel(component=spec).values.flatten()[0] for spec,sto in component[list(set(component.keys()))[0]].items()] 
-#    print(v.R,temperatures,np.log(target_activity),sum(ref_chempot))
     return v.R * temperatures * np.log(target_activity) + sum(ref_chempot)
 
 def calc_difference_activity(activity_data: Sequence[Dict[str, Any]],
@@ -483,7 +482,6 @@ def calculate_activity_residuals(dbf, comps, phases, datasets, parameters=None, 
                     sample_eq_res = equilibrium(dbf, data_comps, trouble_shooting_reference_phase, conds,model=phase_models, parameters=parameters,
                             callables=callables, calc_opts={'pdens': 500})
                 chem_pot_defined_comp=[sto*sample_eq_res.MU.sel(component=spec).values.flatten()[0] for spec,sto in zip(ele,ele_stoich)]
-#            dataset_computed_chempots.append(float(sample_eq_res.MU.sel(component=acr_component).values.flatten()[0]))
             dataset_weights.append(std_dev / data_weight / ds.get("weight", 1.0))
             
             dataset_computed_chempots.append(sum(chem_pot_defined_comp))
@@ -515,7 +513,7 @@ def calculate_activity_error(activity_data: Sequence[Dict[str, Any]],
         return 0.0
     residuals, weights = calc_difference_activity(activity_data, parameters)
 
-    likelihood = np.sum(norm(0, scale=data_weight).logpdf(residuals))
+    likelihood = np.sum(norm(0, scale=500/data_weight).logpdf(residuals))
     if np.isnan(likelihood):
 #        # TODO: revisit this case and evaluate whether it is resonable for NaN
         # to show up here. When this comment was written, the test
@@ -619,7 +617,6 @@ class ActivityResidual(ResidualFunction):
         parameters = dict(zip(symbols_to_fit, [0]*len(symbols_to_fit)))
         self.activity_data = get_activity_data(database, comps, phases, datasets, model_dict, parameters, data_weight_dict=self.weight)
 ############################################        
-
     def get_residuals(self, parameters: npt.ArrayLike) -> Tuple[List[float], List[float]]:
         residuals, weights =calc_difference_activity(self.activity_data, parameters)
         return residuals, weights

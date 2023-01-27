@@ -2,7 +2,9 @@
 Functions for calculating error.
 """
 
-from .activity_error import calculate_activity_error
+from .activity_error import calculate_activity_error,get_activity_data
+from .Fusion_Jorge import calculate_fusion_residuals, get_fusion_data, calculate_fusion_error
 from .non_equilibrium_thermochemical_error import calculate_non_equilibrium_thermochemical_probability, get_thermochemical_data
 from .zpf_error import calculate_zpf_error, get_zpf_data
 from .equilibrium_thermochemical_error import calculate_equilibrium_thermochemical_probability, get_equilibrium_thermochemical_data
+from .Y_error_Jorge import calculate_Y_difference, get_Y_data, calculate_Y_probability

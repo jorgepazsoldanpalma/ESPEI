@@ -68,7 +68,6 @@ def initialize_database(phase_models, ref_state, dbf=None, fallback_ref_state="S
     elements = {el.upper() for el in phase_models["components"]}
     dbf.elements.update(elements)
     dbf.species.update({v.Species(el, {el: 1}, 0) for el in elements})
-
     # Add SER reference data for this element
     for element in dbf.elements:
         if element in dbf.refstates:

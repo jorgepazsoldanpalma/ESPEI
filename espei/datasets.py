@@ -73,6 +73,10 @@ def check_dataset(dataset: Dataset):
     """
     is_equilibrium = 'solver' not in dataset.keys() and dataset['output'] != 'ZPF'
     is_activity = dataset['output'].startswith('ACR')
+    is_sitefraction=dataset['output']=='Y'
+    is_fusion='FUSI' in dataset['output'].split('_')
+    if is_fusion is True:
+        output_fusion=dataset['output'].split('_')
     if is_activity is True:
         activity_components=dataset['output'].split('_')
     if is_equilibrium is True:
@@ -100,13 +104,23 @@ def check_dataset(dataset: Dataset):
     if is_equilibrium and len(is_equilib_pseudo)<=2:
         conditions = dataset['conditions']
         comp_conditions = {k: v for k, v in conditions.items() if k.startswith('X_')}
-    if is_equilibrium and len(is_equilib_pseudo)>2 and is_equilib_pseudo[2]=='COMP':
+    if is_equilibrium and is_equilib_pseudo[-1]=='COMP':
         components=[def_comp for def_comp in dataset['defined_components'].keys()]  
         comp_conditions = {k: v for k, v in conditions.items() if k.startswith('X_')}        
     if is_activity and activity_components[1]!='COMP':
         ref_state = dataset['reference_state']
+    if is_fusion:
+        ref_state = dataset['reference_state']   
+        conditions = dataset['conditions']
+        if dataset.get('defined_components')!=None:
+            components=[def_comp for def_comp in dataset['defined_components'].keys()]  
+            comp_conditions = {k: v for k, v in conditions.items() if k.startswith('X_')}    
+        else:
+            comp_conditions = {k: v for k, v in conditions.items() if k.startswith('X_')}                    
     elif is_activity and activity_components[1]=='COMP':
         components=[def_comp for def_comp in dataset['defined_components'].keys()]   
+    elif is_sitefraction:
+        conditions = dataset['conditions']
     elif is_equilibrium:
         for el, vals in dataset.get('reference_states', {}).items():
             if 'phase' not in vals:
@@ -119,11 +133,18 @@ def check_dataset(dataset: Dataset):
         values_shape = np.array(values).shape
         # check each composition condition is the same shape
         num_x_conds = [len(v) for _, v in comp_conditions.items()]
-        if num_x_conds.count(num_x_conds[0]) != len(num_x_conds):
+        if num_x_conds.count(num_x_conds[0]) != len(num_x_conds) :
             raise DatasetError('All compositions in conditions are not the same shape. Note that conditions cannot be broadcast. Composition conditions are {}'.format(comp_conditions))
         conditions_shape = (num_pressure, num_temperature, num_x_conds[0])
-        if conditions_shape != values_shape:
+        if conditions_shape != values_shape and is_sitefraction!= True:
             raise DatasetError('Shape of conditions (P, T, compositions): {} does not match the shape of the values {}.'.format(conditions_shape, values_shape))
+        elif conditions_shape != values_shape and is_sitefraction== True:
+            length_conditions_shape=len(conditions_shape)
+            length_values=len(values_shape)
+            comp_shapes=tuple([dim for count,dim in enumerate(conditions_shape)\
+                         if dim==values_shape[count]])
+            if comp_shapes!=conditions_shape and (length_conditions_shape-length_is_sitefraction)!=1:
+                raise DatasetError('Shape of conditions (P, T, compositions): {} does not match the shape of the values {}.'.format(conditions_shape, values_shape))
     elif is_single_phase:
         values_shape = np.array(values).shape
         num_configs = len(dataset['solver']['sublattice_configurations'])
@@ -135,7 +156,15 @@ def check_dataset(dataset: Dataset):
         conditions_shape = (num_temperature)
         if conditions_shape != values_shape:
             raise DatasetError('Shape of conditions (T): {} does not match the shape of the values {}.'.format(conditions_shape, values_shape))
-
+    elif is_sitefraction:
+        values_shape = np.array(values).shape
+        # check each composition condition is the same shape
+        num_x_conds = [len(v) for _, v in comp_conditions.items()]
+    # check that all of the correct phases are present
+    elif is_fusion:
+        values_shape = np.array(values).shape
+        # check each composition condition is the same shape
+        num_x_conds = [len(v) for _, v in comp_conditions.items()]
     # check that all of the correct phases are present
     if is_zpf:
         phases_entered = set(phases)
@@ -258,6 +287,10 @@ def clean_dataset(dataset: Dataset) -> Dataset:
                     new_tieline.append([tieline_point[0], tieline_point[1], recursive_map(float, tieline_point[2])])
             new_values.append(new_tieline)
         dataset["values"] = new_values
+    elif dataset['output'] == 'Y':
+        values=dataset["values"]
+        new_values=[]
+
     else:
         # values should be all numerical
         dataset["values"] = recursive_map(float, dataset["values"])

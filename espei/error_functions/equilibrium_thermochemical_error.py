@@ -3,8 +3,9 @@ Calculate error due to equilibrium thermochemical properties.
 """
 
 import logging
-from collections import OrderedDict
+from collections import OrderedDict,defaultdict
 from typing import Dict, List, NamedTuple, Optional, Sequence, Tuple, Type, Union
+from pycalphad.models.model_mqmqa import ModelMQMQA
 
 import numpy as np
 import numpy.typing as npt
@@ -25,6 +26,7 @@ from espei.typing import SymbolName
 from espei.utils import PickleableTinyDB, database_symbols_to_fit
 from pycalphad.plot.eqplot import _map_coord_to_variable
 from pycalphad.core.light_dataset import LightDataset
+from sympy import exp, log, Abs, Add, And, Float, Mul, Piecewise, Pow, S
 
 _log = logging.getLogger(__name__)
 
@@ -43,6 +45,96 @@ EqPropData = NamedTuple('EqPropData', (('dbf', Database),
                                        ('reference', str),
                                        ))
 
+EqCompPropData = NamedTuple('EqCompPropData', (('dbf', Database),
+                                       ('species', Sequence[v.Species]),
+                                       ('phases', Sequence[str]),
+                                       ('potential_conds', Dict[v.StateVariable, float]),
+                                       ('composition_conds', Sequence[Dict[v.X, float]]),                                      
+                                       ('models', Dict[str, Model]),
+                                       ('params_keys', Dict[str, float]),
+                                       ('phase_records', Sequence[Dict[str, PhaseRecord]]),
+                                       ('output', str),
+                                       ('samples', np.ndarray),
+                                       ('weight', np.ndarray),
+                                       ('reference', str),
+                                       ))
+
+def build_eqcomppropdata(data: tinydb.database.Document,
+                     dbf: Database,
+                     model: Optional[Dict[str, Type[Model]]] = None,
+                     parameters: Optional[Dict[str, float]] = None,
+                     data_weight_dict: Optional[Dict[str, float]] = None
+                     ) -> EqCompPropData:
+
+    parameters = parameters if parameters is not None else {}
+    data_weight_dict = data_weight_dict if data_weight_dict is not None else {}
+    property_std_deviation = {
+        'HM': 500.0,  # J/mol
+        'SM':   0.2,  # J/K-mol
+        'CPM':  0.2,  # J/K-mol
+    }
+
+    params_keys, _ = extract_parameters(parameters)
+    data_comps = list(set(data['components']).union({'VA'}))
+    species = sorted(unpack_components(dbf, data_comps), key=str)
+    data_phases = filter_phases(dbf, species, candidate_phases=data['phases'])
+    models = instantiate_models(dbf, species, data_phases, model=Model, parameters=parameters)
+    output = data['output']
+    output = output.split('_')[0] # property without _FORM, _MIX, etc.
+    samples = np.array(data['values']).flatten()
+    reference = data.get('reference', '')
+    def_components=data['defined_components']
+    data_ref_state=data['reference_state']
+    data_ref_phases=data['reference_state']['phases']
+    data_ref_conditions=data['reference_state']['conditions']
+    data_ref_potential_conditions={key:val for i in data_ref_conditions for key,val in data_ref_conditions[i].items() if key=="T" or key=="P"}
+    data_ref_comp_conditions={key:val for i in data_ref_conditions for key,val in data_ref_conditions[i].items() if key!="T" and key!="P"}
+    reference_compositions={}
+    for mod in models.values():
+        property_output = output[:-1] if output.endswith('R') else output  # unreferenced model property so we can tell shift_reference_state what to build.
+        mod.shift_reference_state_defined_components(def_components,data_ref_state, dbf, output=(property_output,))
+
+    data['conditions'].setdefault('N', 1.0)  # Add default for N. Nothing else is supported in pycalphad anyway.
+    pot_conds = OrderedDict([(getattr(v, key), unpack_condition(data['conditions'][key])) for key in sorted(data['conditions'].keys()) if not key.startswith('X_')])
+    cond_def_compositions={key.split('_')[1]:val for key,val in data['conditions'].items() if key!="T" and key!="P" and key!="N"}
+    len_components=list(set([len(comps) for comps in cond_def_compositions.values()]))[0]
+    lst_def_component_comps=[]
+    for i in range(len_components):
+        def_components_cond={comp:x[i] for comp,x in cond_def_compositions.items()}
+        def_comp_dat_file=calculating_pseudo_line(data_comps
+            ,def_components,def_components_cond) 
+        def_comp_dat_file.popitem()
+        lst_def_component_comps.append(def_comp_dat_file)
+    
+    if len(lst_def_component_comps)>1:
+        keys_def_component_comps=list(set([def_comp for comps in lst_def_component_comps for def_comp in comps.keys()]))
+        first_def_comp=lst_def_component_comps[0]
+        lst_def_component_comps={def_comp:[comps[def_comp] for comps in lst_def_component_comps] for def_comp in keys_def_component_comps}
+    else:
+        lst_def_component_comps=lst_def_component_comps[0] 
+    comp_conds = OrderedDict([(v.X(key[2:]), unpack_condition(lst_def_component_comps[key])) for key in sorted(lst_def_component_comps) if 'X_' in key])
+    phase_records = build_phase_records(dbf, species, data_phases, {**pot_conds, **comp_conds}, models, parameters=parameters, build_gradients=True, build_hessians=True)
+
+    # Now we need to unravel the composition conditions
+    # (from Dict[v.X, Sequence[float]] to Sequence[Dict[v.X, float]]), since the
+    # composition conditions are only broadcast against the potentials, not
+    # each other. Each individual composition needs to be computed
+    # independently, since broadcasting over composition cannot be turned off
+    # in pycalphad.
+    rav_comp_conds = [OrderedDict(zip(comp_conds.keys(), pt_comps)) for pt_comps in zip(*comp_conds.values())]
+
+    # Build weights, should be the same size as the values
+    total_num_calculations = len(rav_comp_conds)*np.prod([len(vals) for vals in pot_conds.values()])
+    dataset_weights = np.array(data.get('weight', 1.0)) * np.ones(total_num_calculations)
+    weights = (property_std_deviation.get(output, 1.0)/data_weight_dict.get(output, 1.0)/dataset_weights).flatten()
+    
+#    equilibrium_conditions=data['conditions']
+#    potential_conditions={key:val for key,val in equilibrium_conditions.items() if key=="T" or key=="P"}
+#    potential_conditions.setdefault('N', 1.0)
+#    composition_conditions={key:val for key,val in equilibrium_conditions.items() if key!="T" and key!="P"}
+#    components=data['components']
+    return EqCompPropData(dbf, species, data_phases, pot_conds, rav_comp_conds, models, params_keys
+    , phase_records, output, samples, weights, reference)
 
 def build_eqpropdata(data: tinydb.database.Document,
                      dbf: Database,
@@ -162,13 +254,18 @@ def get_equilibrium_thermochemical_data(dbf: Database, comps: Sequence[str],
         # data that isn't ZPF or non-equilibrium thermochemical
         (where('output') != 'ZPF') & (~where('solver').exists()) &
         (where('output').test(lambda x: 'ACR' not in x)) &  # activity data not supported yet
+        (where('output').test(lambda x: 'Y' not in x)) &  # site fraction data not supported
         (where('components').test(lambda x: set(x).issubset(comps))) &
         (where('phases').test(lambda x: set(x).issubset(set(phases))))
     )
 
     eq_thermochemical_data = []  # 1:1 correspondence with each dataset
     for data in desired_data:
-        eq_thermochemical_data.append(build_eqpropdata(data, dbf, model=model, parameters=parameters, data_weight_dict=data_weight_dict))
+        pseudo_confirmation=data['output'].split('_')
+        if 'COMP' not in pseudo_confirmation:
+            eq_thermochemical_data.append(build_eqpropdata(data, dbf, model=model, parameters=parameters, data_weight_dict=data_weight_dict))
+        else:
+            eq_thermochemical_data.append(build_eqcomppropdata(data, dbf, model=model, parameters=parameters, data_weight_dict=data_weight_dict))
     return eq_thermochemical_data
 
 
@@ -216,10 +313,10 @@ def calc_prop_differences(eqpropdata: EqPropData,
 
     calculated_data = []
     for comp_conds in eqpropdata.composition_conds:
-
         cond_dict = OrderedDict(**pot_conds, **comp_conds)
         # str_statevar_dict must be sorted, assumes that pot_conds are.
         str_statevar_dict = OrderedDict([(str(key), vals) for key, vals in pot_conds.items()])
+
         grid = calculate_(species, phases, str_statevar_dict, models, phase_records, pdens=50, fake_points=True)
         multi_eqdata = _equilibrium(phase_records, cond_dict, grid)
         # TODO: could be kind of slow. Callables (which are cachable) must be built.
@@ -228,6 +325,7 @@ def calc_prop_differences(eqpropdata: EqPropData,
             raise ValueError(f"Property {output} cannot be used to calculate equilibrium thermochemical error because each phase has a unique value for this property.")
 
         vals = getattr(propdata, output).flatten().tolist()
+        print('what is comp_conds',cond_dict, output,vals,samples)
 
         calculated_data.extend(vals)
 
@@ -238,6 +336,34 @@ def calc_prop_differences(eqpropdata: EqPropData,
     differences = calculated_data - samples
     _log.debug('Output: %s differences: %s, weights: %s, reference: %s', output, differences, weights, eqpropdata.reference)
     return differences, weights
+
+def calculating_pseudo_line(elemental_composition,defined_components,component_fractions):
+
+#    pseudo_line=component_ratio(defined_components) 
+    elemental_composition=[i for i in elemental_composition if i!='VA']
+    pseudo_line=defined_components
+    dependent_comp=1-sum([i for i in component_fractions.values()])
+    for key,value in defined_components.items():
+        if key not in component_fractions:   
+            component_fractions[key]=dependent_comp
+    final_amount={}
+    tot_moles=S.Zero
+    for i in elemental_composition:
+        fun_list=[]
+        for comp,value in component_fractions.items():
+            for new_comp,new_value in pseudo_line[comp].items():
+                if i==new_comp:
+                    fun_list.append(value*new_value)
+                    final_fun_list=sum(fun_list)
+                    final_amount['X_'+i]=final_fun_list
+                    tot_moles+=value*new_value
+    
+    for final_comp,final_value in final_amount.items():
+        final_amount[final_comp]=float(final_value/tot_moles)
+    
+    component_fractions.popitem()
+    
+    return final_amount
 
 
 def calculate_equilibrium_thermochemical_probability(eq_thermochemical_data: Sequence[EqPropData],
@@ -311,7 +437,6 @@ class EquilibriumPropertyResidual(ResidualFunction):
         # okay if parameters are initialized to zero, we only need the symbol names
         parameters = dict(zip(symbols_to_fit, [0]*len(symbols_to_fit)))
         self.property_data = get_equilibrium_thermochemical_data(database, comps, phases, datasets, model_dict, parameters, data_weight_dict=self.weight)
-
     def get_residuals(self, parameters: npt.ArrayLike) -> Tuple[List[float], List[float]]:
         residuals = []
         weights = []
