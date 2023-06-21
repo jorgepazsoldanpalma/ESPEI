@@ -117,7 +117,6 @@ def get_activity_data(dbf: Database, comps: Sequence[str],
         Chem_Pot_ref_potential={key:value for key,value in ref_conditions.items() if not key.startswith('X_')}
         Chem_Pot_ref_potential.setdefault('N', 1.0)
         ref_potential=OrderedDict([(getattr(v, key), unpack_condition(Chem_Pot_ref_potential[key])) for key in sorted(Chem_Pot_ref_potential.keys()) if not key.startswith('X_')])
-#        ref_defined_component=[key for key,val in ref_compositions.items() if val==1]
         
   
         
@@ -132,7 +131,9 @@ def get_activity_data(dbf: Database, comps: Sequence[str],
             defined_unary_components=[key.split('_')[1] for key,val in converted_ref_compositions.items() if val>0.0]
             
             depend_unary_copmponents=sorted(defined_unary_components)[:-1]     
-            ref_comp_conds = OrderedDict([(v.X(key[2:]), unpack_condition(converted_ref_compositions[key])) for key,val in sorted(converted_ref_compositions.items()) if key.startswith('X_') and val!=0.0 and key[2:] in depend_unary_copmponents])
+            ref_comp_conds = OrderedDict([(v.X(key[2:]), unpack_condition(converted_ref_compositions[key])) \
+            for key,val in sorted(converted_ref_compositions.items()) \
+            if key.startswith('X_') and val!=0.0 and key[2:] in depend_unary_copmponents])
             def_comp_species=sorted(unpack_components(dbf, defined_unary_components), key=str)
             def_comp_data_phases = filter_phases(dbf, def_comp_species, candidate_phases=phases)
             def_comp_models = instantiate_models(dbf, def_comp_species, def_comp_data_phases, model=model, parameters=parameters)
@@ -512,7 +513,7 @@ def calculate_activity_error(activity_data: Sequence[Dict[str, Any]],
     if len(activity_data) == 0:
         return 0.0
     residuals, weights = calc_difference_activity(activity_data, parameters)
-
+###CHANGE THIS BACK TO 500!
     likelihood = np.sum(norm(0, scale=500/data_weight).logpdf(residuals))
     if np.isnan(likelihood):
 #        # TODO: revisit this case and evaluate whether it is resonable for NaN

@@ -83,6 +83,8 @@ def check_dataset(dataset: Dataset):
         is_equilib_pseudo=dataset['output'].split('_')
     is_zpf = dataset['output'] == 'ZPF'
     is_single_phase = 'solver' in dataset.keys()
+    if is_single_phase is True:
+        is_single_phase_output=dataset['output'].split('_')
     if not any((is_equilibrium, is_single_phase, is_zpf)):
         raise DatasetError("Cannot determine type of dataset")
     components = dataset['components']
@@ -109,14 +111,18 @@ def check_dataset(dataset: Dataset):
         comp_conditions = {k: v for k, v in conditions.items() if k.startswith('X_')}        
     if is_activity and activity_components[1]!='COMP':
         ref_state = dataset['reference_state']
+    if is_single_phase and 'COMP' in is_single_phase_output:
+        ele_components=dataset['components']
+        components=list(set([def_comp for def_comp in dataset['defined_components'].keys() \
+        for ele in dataset['defined_components'].get(def_comp).keys() if ele in ele_components]))      
     if is_fusion:
         ref_state = dataset['reference_state']   
         conditions = dataset['conditions']
         if dataset.get('defined_components')!=None:
             components=[def_comp for def_comp in dataset['defined_components'].keys()]  
-            comp_conditions = {k: v for k, v in conditions.items() if k.startswith('X_')}    
+            comp_conditions = {k: v for k, v in conditions.items() if k.startswith('X_')}  
         else:
-            comp_conditions = {k: v for k, v in conditions.items() if k.startswith('X_')}                    
+            comp_conditions = {k: v for k, v in conditions.items() if k.startswith('X_')}
     elif is_activity and activity_components[1]=='COMP':
         components=[def_comp for def_comp in dataset['defined_components'].keys()]   
     elif is_sitefraction:

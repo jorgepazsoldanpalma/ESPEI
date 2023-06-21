@@ -101,7 +101,6 @@ def calculate_(species: Sequence[v.Species], phases: Sequence[str],
 
     if len(all_phase_data) > 1:
         concatenated_coords = all_phase_data[0].coords
-
         data_vars = all_phase_data[0].data_vars
         concatenated_data_vars = {}
         for var in data_vars.keys():

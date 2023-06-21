@@ -206,9 +206,8 @@ def get_thermochemical_data(dbf, comps, phases, datasets, model=None, weight_dic
         'SM':   0.2/weight_dict.get('SM', 1.0),  # J/K-mol
         'CPM':  0.2/weight_dict.get('CPM', 1.0),  # J/K-mol
     }
-    properties = ['HM_FORM', 'SM_FORM', 'CPM_FORM', 'HM_MIX', 'SM_MIX', 'CPM_MIX','HMR_COMP','CPMR_COMP','SMR_COMP']
+    properties = ['HM_FORM', 'SM_FORM', 'CPM_FORM', 'HM_MIX', 'SM_MIX', 'CPM_MIX']
     ref_states = []
-    COMP_ref_states= []
     for el in get_pure_elements(dbf, comps):
         ref_state = ReferenceState(el, dbf.refstates[el]['phase'])
         ref_states.append(ref_state)
@@ -222,10 +221,10 @@ def get_thermochemical_data(dbf, comps, phases, datasets, model=None, weight_dic
         constituents = [[sp.name for sp in sorted(subl_constituents.intersection(species_comps))] for subl_constituents in phase_constituents]
         for prop in properties:
             desired_data = get_prop_data(comps, phase_name, prop, datasets, additional_query=(where('solver').exists()))
+            print('Desired data',desired_data)
             if len(desired_data) == 0:
                 continue
             unique_exclusions = set([tuple(sorted(set(d.get('excluded_model_contributions', [])))) for d in desired_data])
-            
             for exclusion in unique_exclusions:
                 data_dict = {
                     'phase_name': phase_name,
@@ -247,13 +246,6 @@ def get_thermochemical_data(dbf, comps, phases, datasets, model=None, weight_dic
                 if prop.endswith('_FORM'):
                     output = ''.join(prop.split('_')[:-1])+'R'
                     mod.shift_reference_state(ref_states, dbf, contrib_mods={e: symengine.S.Zero for e in exclusion})
-                elif 'COMP' in prop:
-                    ref_sta=[i['reference_state'] for i in desired_data]
-                    COMP_BIN=[i['defined_components'] for i in desired_data]
-                    prop=prop.split('_')[0]
-                    prop=prop[:-1] if prop.endswith('R') else prop
-                    mod.shift_reference_state_defined_components(COMP_BIN[0],ref_sta[0], dbf, output=(prop,))
-                    output=prop+'R'
                 else:
                     output = prop
                 for contrib in exclusion:
@@ -289,12 +281,12 @@ def compute_fixed_configuration_property_differences(calc_data: FixedConfigurati
     output = calc_data['output']
     phase_records = calc_data['phase_records']
     sample_values = calc_data['calculate_dict']['values']
+
     update_phase_record_parameters(phase_records, parameters)
     results = calculate_(calc_data['species'], [phase_name],
                             calc_data['str_statevar_dict'], calc_data['model'],
                             phase_records, output=output, broadcast=False,
                             points=calc_data['calculate_dict']['points'])[output]
-#    print('Goddamnit',results, sample_values, results - sample_values)                                    
     differences = results - sample_values
     return differences
 
@@ -377,4 +369,4 @@ class FixedConfigurationPropertyResidual(ResidualFunction):
         return likelihood
 
 
-residual_function_registry.register(FixedConfigurationPropertyResidual)
+#residual_function_registry.register(FixedConfigurationPropertyResidual)

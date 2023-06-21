@@ -8,6 +8,8 @@ reference state that could be used for equilibrium chemical potentials.
 
 """
 
+
+
 import logging
 from dataclasses import dataclass
 
@@ -32,15 +34,17 @@ from espei.utils import database_symbols_to_fit, PickleableTinyDB
 from espei.shadow_functions import equilibrium_, calculate_, no_op_equilibrium_, update_phase_record_parameters
 from pycalphad.core.phase_rec import PhaseRecord
 from pycalphad.core.light_dataset import LightDataset
+from pycalphad.core.equilibrium import _eqcalculate
 
 _log = logging.getLogger(__name__)
 
 @dataclass
-class ChemPotentialRegion:
+class PotentialRegion:
     potential_conds : Dict[v.StateVariable, float]
     species:Sequence[v.Species]
     phases: Sequence[str]
     models: Dict[str,Model]
+
 
 def get_fusion_data(dbf: Database, comps: Sequence[str],
                                         phases: Sequence[str],
@@ -82,24 +86,30 @@ def get_fusion_data(dbf: Database, comps: Sequence[str],
     """
 
     desired_data = datasets.search(
-        (tinydb.where('output').test(lambda x: 'ACR' in x)) &
-        (tinydb.where('components').test(lambda x: set(x).issubset(comps))))
+        (tinydb.where('output').test(lambda x: 'FUSI' in x)) &
+        (tinydb.where('components').test(lambda x: set(x).issubset(comps))) &
+        (tinydb.where('phases').test(lambda x: set(x).issubset(set(phases))))        
+        )
 
     fusion_data=[] 
-    stoich_ref=[]
     for data in desired_data:
-        data_defined_components=data['output'].split('_')[1]
+        data_output=data['output'].split('_')[0]
+        params_keys, _ = extract_parameters(parameters)
+        def_comp=data['output'].split('_')
+        if len(def_comp)>2:
+            _COMP='COMP'
+        else:
+            _COMP='NONE'
         data_comps = list(set(data['components']))
         species = sorted(unpack_components(dbf, data_comps), key=str)
-
         if data['phases'] is None:
             data_phases = filter_phases(dbf, species, candidate_phases=phases)
         else:
             data_phases=data['phases']
-            
+        ref_data_phases=data['reference_state']['phases']
         samples=data['values']
         models = instantiate_models(dbf, species, data_phases, model=model, parameters=parameters)
-                
+        ref_models=instantiate_models(dbf, species, ref_data_phases, model=model, parameters=parameters)
         phase_recs = build_phase_records(dbf
         , species
         , data_phases
@@ -108,95 +118,56 @@ def get_fusion_data(dbf: Database, comps: Sequence[str],
         , parameters=parameters
         , build_gradients=True
         , build_hessians=True)
-        activity_conditions=data['conditions']
-        potential_conds={key:val for key,val in activity_conditions.items() if key=="T" or key=="P"}
-        potential_conds.setdefault('N', 1.0)
-        comp_conds={key:val for key,val in activity_conditions.items() if key!="T" and key!="P"}
+        
+        ref_phase_records= build_phase_records(dbf
+        , species
+        , ref_data_phases
+        , {v.N, v.P, v.T}
+        , ref_models
+        , parameters=parameters
+        , build_gradients=True
+        , build_hessians=True)
+        
+        conditions=data['conditions']
         ref_conditions=data['reference_state']['conditions']
-        ref_compositions={key.split('_')[1]:val for key,val in ref_conditions.items() if key!="T" and key!="P"}
-        Chem_Pot_ref_potential={key:value for key,value in ref_conditions.items() if not key.startswith('X_')}
-        Chem_Pot_ref_potential.setdefault('N', 1.0)
-        ref_potential=OrderedDict([(getattr(v, key), unpack_condition(Chem_Pot_ref_potential[key])) for key in sorted(Chem_Pot_ref_potential.keys()) if not key.startswith('X_')])
-#        ref_defined_component=[key for key,val in ref_compositions.items() if val==1]
-        
-  
-        
-####The reason Jorge added len_components is in case multiple different defined compositions are provided###
-        len_components=list(set([len(comps) for comps in comp_conds.values()]))[0]
-        lst_def_component_comps=[]
-        if data_defined_components=='COMP':
-            defined_components=data['defined_components']
-            first_defined_component=[key for key in defined_components.keys()][0]
-            reference_stoich=defined_components[first_defined_component]
-            converted_ref_compositions=calculating_pseudo_line(data_comps,defined_components,ref_compositions)
-            defined_unary_components=[key.split('_')[1] for key,val in converted_ref_compositions.items() if val>0.0]
-            
-            depend_unary_copmponents=sorted(defined_unary_components)[:-1]     
-            ref_comp_conds = OrderedDict([(v.X(key[2:]), unpack_condition(converted_ref_compositions[key])) for key,val in sorted(converted_ref_compositions.items()) if key.startswith('X_') and val!=0.0 and key[2:] in depend_unary_copmponents])
-            def_comp_species=sorted(unpack_components(dbf, defined_unary_components), key=str)
-            def_comp_data_phases = filter_phases(dbf, def_comp_species, candidate_phases=phases)
-            def_comp_models = instantiate_models(dbf, def_comp_species, def_comp_data_phases, model=model, parameters=parameters)
-            ref_chem_pot_reg=ChemPotentialRegion(Chem_Pot_ref_potential,def_comp_species
-            ,def_comp_data_phases,def_comp_models)
-            
-            chem_pot=ChemPotentialRegion(potential_conds,species,data_phases,models)
-            def_comp_phase_recs = build_phase_records(dbf
-            , def_comp_species
-            , def_comp_data_phases
-            , {v.N, v.P, v.T}
-            , def_comp_models
-            , parameters=parameters
-            , build_gradients=True
-            , build_hessians=True)
-            for i in range(len_components):
-                def_component_comps={}
-                for comps,quant in comp_conds.items():
-                    def_component_comps[comps[2:]]=quant[i]
-                    def_comp_dat_file=calculating_pseudo_line(data_comps
-                    ,defined_components,def_component_comps)
-                lst_def_component_comps.append(def_comp_dat_file)
-            ref_cond_dict = OrderedDict(**ref_potential, **ref_comp_conds)
-        else:
-            
-            chem_pot=ChemPotentialRegion(potential_conds
-            ,species,data_phases,models)
 
+        potential_conds={key:val for key,val in conditions.items() if key=="T" or key=="P"}
+        potential_conds.setdefault('N', 1.0)
+        Potential_Reg=PotentialRegion(potential_conds,species,data_phases,models)
+        
+        if _COMP=='NONE':
+            comp_conds={key:val for key,val in conditions.items() if key!="T" and key!="P"}
+        else:
+            def_components=data['defined_components']
+            def_comp_conds={key.split('_')[1]:val for key,val in conditions.items() if key!="T" and key!="P"}
+            comp_conds=calculating_pseudo_line(data_comps,def_components,def_comp_conds)     
             
-            defined_unary_components=[data_defined_components]
-            ref_comp_species=sorted(unpack_components(dbf, defined_unary_components), key=str)
-            lst_def_component_comps.append(comp_conds)
-            ref_comp_data_phases = filter_phases(dbf, ref_comp_species, candidate_phases=phases)
-            ref_cond_dict = OrderedDict(**ref_potential)
-            ref_comp_models = instantiate_models(dbf, ref_comp_species, ref_comp_data_phases
-            , model=model, parameters=parameters)
-            def_comp_models = instantiate_models(dbf, ref_comp_species
-            , ref_comp_data_phases, model=model, parameters=parameters)
-            ref_chem_pot_reg=ChemPotentialRegion(Chem_Pot_ref_potential,ref_comp_species
-            ,ref_comp_data_phases,def_comp_models)    
-            reference_stoich=None
-            def_comp_phase_recs = build_phase_records(dbf
-            , ref_comp_species
-            , ref_comp_data_phases
-            , {v.N, v.P, v.T}
-            , def_comp_models
-            , parameters=parameters
-            , build_gradients=True
-            , build_hessians=True)            
-            
+        ref_potential={key:value for key,value in ref_conditions.items() if not key.startswith('X_')}
+        ref_potential.setdefault('N', 1.0)
+        ref_compositions={key:val for key,val in ref_conditions.items() if key!="T" and key!="P"}
+        ref_Potential_Reg=PotentialRegion(ref_potential,species,ref_data_phases,ref_models)
+        
+        
+        final_ref_potential=OrderedDict([(getattr(v, key), unpack_condition(ref_potential[key])) for key in sorted(ref_potential.keys()) if not key.startswith('X_')])  
+        final_potential= OrderedDict([(getattr(v, key), unpack_condition(potential_conds[key])) for key in sorted(potential_conds.keys()) if not key.startswith('X_')])
+        
+        total_num_calculations=np.prod([len(vals) for vals in final_potential.values()])
+        dataset_weights = np.array(data.get('weight', 1.0)) * np.ones(total_num_calculations)
+
+        
         data_ref=data['reference']
-        
-        
         data_dict={
-        'weight':data.get('weight', 1.0),
-        'defined_components':data_defined_components,
+        'weight':dataset_weights,
+        'database':dbf,
+        'output':data_output,
+        'Potential_region':Potential_Reg,
+        'Ref_Potential_region':ref_Potential_Reg,
         'phase_records':phase_recs,
-        'reference_phase_records':def_comp_phase_recs,
-        'ref_Chem_Potential':ref_chem_pot_reg,
-        'Chem_Potential':chem_pot,
-        'reference_stoich':reference_stoich,
+        'reference_phase_records':ref_phase_records,
         'dataset_reference':data_ref,
-        'list_con_dict': lst_def_component_comps,
-        'ref_cond_dict':ref_cond_dict,
+        'component_dict': comp_conds,
+        'Defined_components':_COMP,
+        'param_variables':params_keys,
         'samples':samples
         }
         
@@ -205,9 +176,12 @@ def get_fusion_data(dbf: Database, comps: Sequence[str],
  
 def calculating_pseudo_line(elemental_composition,defined_components,component_fractions):
 
-#    pseudo_line=component_ratio(defined_components)    
     pseudo_line=defined_components
-    dependent_comp=1-sum([i for i in component_fractions.values()])
+    checking_type=[True for i in component_fractions.values() if isinstance(i,list)==True][0]
+    if checking_type==True:
+        dependent_comp=1-sum([i[0] for i in component_fractions.values()])
+    elif checking_type!=True:
+        dependent_comp=1-sum([i for i in component_fractions.values()])
     for key,value in defined_components.items():
         if key not in component_fractions:   
             component_fractions[key]=dependent_comp
@@ -216,6 +190,10 @@ def calculating_pseudo_line(elemental_composition,defined_components,component_f
     for i in elemental_composition:
         fun_list=[]
         for comp,value in component_fractions.items():
+            if isinstance(value,list)==True:
+                value=value[0]
+            else:
+                pass
             for new_comp,new_value in pseudo_line[comp].items():
                 if i==new_comp:
                     fun_list.append(value*new_value)
@@ -230,151 +208,12 @@ def calculating_pseudo_line(elemental_composition,defined_components,component_f
     
     return final_amount
 
-def target_chempots_from_activity(component, target_activity, temperatures, reference_result):
-    """
-    Return an array of experimental chemical potentials for the component
-
-    Parameters
-    ----------
-    component : str
-        Name of the component
-    target_activity : numpy.ndarray
-        Array of experimental activities
-    temperatures : numpy.ndarray
-        Ravelled array of temperatures (of same size as ``exp_activity``).
-    reference_result : xarray.Dataset
-        Dataset of the equilibrium reference state. Should contain a singe point calculation.
-
-    Returns
-    -------
-    numpy.ndarray
-        Array of experimental chemical potentials
-    """
-    # acr_i = exp((mu_i - mu_i^{ref})/(RT))
-    # so mu_i = R*T*ln(acr_i) + mu_i^{ref}
-    if isinstance(component,str)==True:
-        ref_chempot = reference_result["MU"].sel(component=component).values.flatten()
-    else:
-        ref_chempot=[sto*reference_result.MU.sel(component=spec).values.flatten()[0] for spec,sto in component[list(set(component.keys()))[0]].items()] 
-#    print(v.R,temperatures,np.log(target_activity),sum(ref_chempot))
-    return v.R * temperatures * np.log(target_activity) + sum(ref_chempot)
-
-def calc_difference_activity(activity_data: Sequence[Dict[str, Any]],
+        
+# TODO: roll this function into ActivityResidual
+def calculate_fusion_residuals(fusion_data: Sequence[Dict[str, Any]],
                           parameters: np.ndarray,
                           approximate_equilibrium: Optional[bool] = False,
                           ) -> Tuple[np.ndarray, np.ndarray]:
-
-    """
-    Calculate differences between the expected and calculated values for a property
-
-    Parameters
-    ----------
-    eqpropdata : EqPropData
-        Data corresponding to equilibrium calculations for a single datasets.
-    parameters : np.ndarray
-        Array of parameters to fit. Must be sorted in the same symbol sorted
-        order used to create the PhaseRecords.
-    approximate_equilibrium : Optional[bool]
-        Whether or not to use an approximate version of equilibrium that does
-        not refine the solution and uses ``starting_point`` instead.
-
-    Returns
-    -------
-    Tuple[np.ndarray, np.ndarray]
-        Pair of
-        * differences between the calculated property and expected property
-        * weights for this dataset
-
-    """
-    if approximate_equilibrium:
-        _equilibrium = no_op_equilibrium_
-    else:
-        _equilibrium = equilibrium_
-    act_diff=[]
-    weights_=[]
-    for data in activity_data:
-        activity_error=[]
-        data_weights=[]
-        weight=data['weight']
-        defined_components=data['defined_components']
-        dataset_ref=data['dataset_reference']
-        list_component_dataset=data['list_con_dict']
-        phase_records=data['phase_records']
-        update_phase_record_parameters(phase_records, parameters)
-        dataset_species=data['Chem_Potential'].species
-        dataset_phases=data['Chem_Potential'].phases
-        dataset_models=data['Chem_Potential'].models
-        dataset_state_var=data['Chem_Potential'].potential_conds
-        Temp=dataset_state_var['T']
-        samples=data['samples']
-        samples=[v.R*Temp*np.log(i) for i in samples]
-        
-        ref_cond_dict=data['ref_cond_dict']        
-        ref_phase_records=data['reference_phase_records']
-        ref_state_var=data['ref_Chem_Potential'].potential_conds
-        ref_species=data['ref_Chem_Potential'].species
-        ref_phases=data['ref_Chem_Potential'].phases
-        ref_models=data['ref_Chem_Potential'].models
-        reference_stoichiometric=data['reference_stoich']
-        ref_grid = calculate_(ref_species, ref_phases, ref_state_var
-        , ref_models, ref_phase_records, pdens=50, fake_points=True)
-        Ref_multi_eqdata = _equilibrium(ref_phase_records, ref_cond_dict, ref_grid)
-        Ref_Chem_Potentials=Ref_multi_eqdata.MU.squeeze()
-        Ref_Chem_components=Ref_multi_eqdata.coords['component']
-        if defined_components=='COMP':
-            Ref_Chem_Potential=sum([reference_stoichiometric[comp]*mu for comp,mu in zip(Ref_Chem_components,Ref_Chem_Potentials)])
-        else:
-            if Ref_Chem_Potentials.ndim==0:
-                Ref_Chem_Potentials=[Ref_Chem_Potentials.tolist()]
-            else:
-                pass
-            Ref_Chem_Potential=[mu for comp,mu in zip(Ref_Chem_components,Ref_Chem_Potentials) if comp==defined_components][0]
-        grid=calculate_(dataset_species
-        ,dataset_phases,dataset_state_var,dataset_models
-        ,phase_records, pdens=50, fake_points=True)
-
-        dataset_state_var=OrderedDict([(getattr(v, key), unpack_condition(dataset_state_var[key])) for key in sorted(dataset_state_var.keys())])           
-        calculated_data=[]
-        for cond in list_component_dataset:
-            if len(cond)>1:
-                dep_comp=[i for i in cond.keys()][:-1]
-            else:
-                dep_comp=cond
-            comp_cond=OrderedDict([(v.X(key[2:]), unpack_condition(cond[key])) for key,val in sorted(cond.items()) if key.startswith('X_')
-            and key in dep_comp])
-            cond_dict = OrderedDict(**dataset_state_var, **comp_cond)
-            multi_eqdata =_equilibrium(phase_records, 
-            cond_dict, grid)
-            Chem_Pot=multi_eqdata.MU.squeeze()
-
-            if defined_components=='COMP':
-                Chem_components=list(sorted([i for i in reference_stoichiometric.keys()]))
-                Chem_Potential=[sum([reference_stoichiometric[comp]*mu 
-                for comp,mu in zip(Chem_components,Chem_Pot)])]
-            else:
-                Chem_components=multi_eqdata.coords['component']    
-                Chem_Potential=[mu for chem_pot in Chem_Pot for comp,mu in zip(Chem_components,chem_pot) if comp==defined_components]
-            
-            activity= [(mu - Ref_Chem_Potential) for mu in Chem_Potential]
-            calculated_data.append(activity)   
-            
-
-        calculated_data = np.array(calculated_data, dtype=np.float_)
-        samples=np.array(samples,dtype=np.float)
-    
-####CHECK THIS AGAIN FOR ARRAY SHAPE THAT WILL BE IMPORTANT####
-#    assert calculated_data.shape == samples.shape, f"Calculated data shape {calculated_data.shape} does not match samples shape {samples.shape}"
-#    assert calculated_data.shape == weight.shape, f"Calculated data shape {calculated_data.shape} does not match weights shape {weights.shape}"
-##############################################################
-        differences = calculated_data - samples
-        output=calculated_data.flatten().tolist()
-        _log.debug('Output: %s differences: %s, weights: %s, reference: %s', output, differences, weight, dataset_ref)
-        act_diff.append(differences)
-        weights_.append(np.array(weight))
-    return act_diff, weights_
-        
-# TODO: roll this function into ActivityResidual
-def calculate_fusion_residuals(dbf, comps, phases, datasets, parameters=None, phase_models=None, callables=None, data_weight=1.0) -> Tuple[List[float], List[float]]:
     """
     Notes
     -----
@@ -388,197 +227,110 @@ def calculate_fusion_residuals(dbf, comps, phases, datasets, parameters=None, ph
         d. Calculate error due to chemical potentials
     """
     std_dev = 500  # J/mol
-
-    if parameters is None:
-        parameters = {}
-
-    activity_datasets = datasets.search(
-        (tinydb.where('output').test(lambda x: 'ACR' in x)) &
-        (tinydb.where('components').test(lambda x: set(x).issubset(comps))))
-
-    residuals = []
-    weights = []
     
-    for ds in activity_datasets:
-        acr_def_component=ds['output'].split('_')[1]  # the component of interest
-        data_comps = ds['components']
-        def_com_ref_condition={}
-        if acr_def_component!='COMP':
-            # calculate the reference state equilibrium
-            ref = ds['reference_state']
-            ref_conditions = {_map_coord_to_variable(coord): val for coord, val in ref['conditions'].items()}
-            ref_result = equilibrium(dbf, data_comps, ref['phases'], ref_conditions,
-                                     model=phase_models, parameters=parameters,
-                                     callables=callables)
-        else:
+    if approximate_equilibrium:
+        _equilibrium = no_op_equilibrium_
+    else:
+        _equilibrium = equilibrium_
+    residuals=[]
+#    for data in fusion_data:
+    defined_comp=fusion_data['Defined_components']
+    data_weight= fusion_data['weight']
+    therm_property=fusion_data['output']  # the property of interest
+    data_comps = fusion_data['component_dict']
+    dbf=fusion_data['database']
+    def_com_ref_condition={}
+    phase_records=fusion_data['phase_records']
+    ref_phase_records=fusion_data['reference_phase_records']
+    update_phase_record_parameters(phase_records, parameters)
+    update_phase_record_parameters(ref_phase_records, parameters)
+    dataset_species=fusion_data['Potential_region'].species
+    dataset_phases=fusion_data['Potential_region'].phases
+    dataset_models=fusion_data['Potential_region'].models
+    dataset_state_var=fusion_data['Potential_region'].potential_conds
+    ref_dataset_species=fusion_data['Ref_Potential_region'].species
+    ref_dataset_phases=fusion_data['Ref_Potential_region'].phases
+    ref_dataset_models=fusion_data['Ref_Potential_region'].models
+    ref_dataset_state_var=fusion_data['Ref_Potential_region'].potential_conds       
+    samples=fusion_data['samples']
+    param_keys=fusion_data['param_variables']
+    params_dict = OrderedDict(zip(map(str, param_keys), parameters))
+    pot_cond=OrderedDict([(getattr(v, key), unpack_condition(dataset_state_var[key])) for key in sorted(dataset_state_var.keys())])    
+    dataset_state_var = OrderedDict([(str(key), vals) for key, vals in sorted(dataset_state_var.items())])
+    grid=calculate_(dataset_species
+    ,dataset_phases,dataset_state_var,dataset_models
+    ,phase_records, pdens=50, fake_points=True)
+    
+    ref_grid=calculate_(ref_dataset_species
+    ,ref_dataset_phases,ref_dataset_state_var,ref_dataset_models
+    ,ref_phase_records, pdens=50, fake_points=True)
+    
+    
+    ref_dataset_state_var=OrderedDict([(getattr(v, key), unpack_condition(ref_dataset_state_var[key])) for key in sorted(ref_dataset_state_var.keys())])    
+    
+    if defined_comp=='NONE':
+        comp_cond=OrderedDict([(v.X(key[2:]), unpack_condition(data_comps[key])) for key,val in sorted(data_comps.items()) if key.startswith('X_')]) 
+    elif defined_comp=='COMP':
+        defined_unary_components=[key.split('_')[1] for key,val in data_comps.items() if val>0.0]
+        depend_unary_copmponents=sorted(defined_unary_components)[:-1]     
+        comp_cond = OrderedDict([(v.X(key[2:]), unpack_condition(data_comps[key])) \
+        for key,val in sorted(data_comps.items()) \
+        if key.startswith('X_') and val!=0.0 and key[2:] in depend_unary_copmponents])           
+    cond_dict = OrderedDict(**pot_cond, **comp_cond)    
+    ref_cond_dict= OrderedDict(**ref_dataset_state_var, **comp_cond)   
+    
+    multi_eqdata =_equilibrium(phase_records, 
+        cond_dict, grid)  
+    ref_multi_eqdata =_equilibrium(ref_phase_records, 
+        ref_cond_dict, ref_grid)             
+    propdata = _eqcalculate(dbf, dataset_species, dataset_phases, cond_dict
+    , therm_property, data=multi_eqdata, per_phase=False, callables=None, parameters=params_dict, model=dataset_models)
+    ref_propdata = _eqcalculate(dbf, ref_dataset_species, ref_dataset_phases, ref_cond_dict
+    , therm_property, data=ref_multi_eqdata, per_phase=False, callables=None, parameters=params_dict, model=ref_dataset_models)
+    ref_values=getattr(ref_propdata, therm_property).flatten().tolist()[0]
+    values=getattr(propdata, therm_property).flatten().tolist()
+    values=[val-ref_values for val in values]
+    res=np.array(samples).flatten()[0]-values
 
-            checking_comment=ds['comment']
-            checking_comment=checking_comment.split('_')
-            ele_stoich=[]
-            ele=[]
-            for i in checking_comment:
+    residuals.append(res)
 
-                if i not in ds['components']:
-                    ele_stoich.append(float(i))
-                else:
-                    ele.append(i)
-
-            def_com_ref_condition[v.N]=1
-            def_com_ref_condition[v.T]=ds['conditions']['T']
-            def_com_ref_condition[v.P]=ds['conditions']['P']
-            defined_comp=ds['output'].split('_')
-            del defined_comp[0]
-            del defined_comp[0]
-            end_member_comp=[i/sum(ele_stoich) for i in ele_stoich]
-            for index in range(len(ele)-1):                
-                def_com_ref_condition[v.X(ele[index])]=end_member_comp[index]
-            ref_result = equilibrium(dbf, ele, ds['phases'], def_com_ref_condition,
-                                     model=phase_models, parameters=parameters,
-                                     callables=callables, calc_opts={'pdens': 500})
-            ref_result_check=np.squeeze(ref_result.GM.values).tolist()
-
-        # data_comps and data_phases ensures that we only do calculations on
-        # the subsystem of the system defining the data.
-        data_phases = filter_phases(dbf, unpack_components(dbf, data_comps), candidate_phases=phases)
-
-        # calculate current chemical potentials
-        # get the conditions
-        conditions = {}
-        # first make sure the conditions are paired
-        # only get the compositions, P and T are special cased
-        conds_list = [(cond, value) for cond, value in ds['conditions'].items() if cond not in ('P', 'T')]
-        # ravel the conditions
-        # we will ravel each composition individually, since they all must have the same shape
-        dataset_computed_chempots = []
-        dataset_weights = []
-        for comp_name, comp_x in conds_list:
-            P, T, X = ravel_conditions(ds['values'], ds['conditions']['P'], ds['conditions']['T'], comp_x)
-            conditions[v.P] = P
-            conditions[v.T] = T
-            conditions[_map_coord_to_variable(comp_name)] = X
-        # do the calculations
-        # we cannot currently turn broadcasting off, so we have to do equilibrium one by one
-        # invert the conditions dicts to make a list of condition dicts rather than a condition dict of lists
-        # assume now that the ravelled conditions all have the same size
-        conditions_list = [{c: conditions[c][i] for c in conditions.keys()} for i in range(len(conditions[v.T]))]
-        trouble_shooting_reference_phase=ds['phases']
-        acr_component={}
-        if acr_def_component=='COMP':
-            acr_component[ds['output'].split('_')[2]]={}
-            for k,l in zip(ele,ele_stoich):
-                acr_component[ds['output'].split('_')[2]][k]=l
-        else:
-            pass
-#        def_comp_ele_chem_pot=new_components[defined_comp[0]]
-        if acr_def_component!='COMP':
-            for conds in conditions_list:
-                sample_eq_res = equilibrium(dbf, data_comps, data_phases, conds,model=phase_models, parameters=parameters,
-                            callables=callables)
-                dataset_computed_chempots.append(sample_eq_res.MU.sel(component=acr_def_component).values.flatten()[0]) 
-        else:
-            for conds in conditions_list:
-                sample_eq_res = equilibrium(dbf, data_comps, data_phases, conds,model=phase_models, parameters=parameters,
-                            callables=callables, calc_opts={'pdens': 500})
-                if np.isnan(sample_eq_res.GM)==True:
-                    sample_eq_res = equilibrium(dbf, data_comps, trouble_shooting_reference_phase, conds,model=phase_models, parameters=parameters,
-                            callables=callables, calc_opts={'pdens': 500})
-                chem_pot_defined_comp=[sto*sample_eq_res.MU.sel(component=spec).values.flatten()[0] for spec,sto in zip(ele,ele_stoich)]
-#            dataset_computed_chempots.append(float(sample_eq_res.MU.sel(component=acr_component).values.flatten()[0]))
-            dataset_weights.append(std_dev / data_weight / ds.get("weight", 1.0))
-            
-            dataset_computed_chempots.append(sum(chem_pot_defined_comp))
-        # calculate target chempots
-             
-        dataset_activities = np.array(ds['values']).flatten()
-        if acr_def_component=='COMP': 
-            dataset_target_chempots = target_chempots_from_activity(acr_component, dataset_activities, conditions[v.T], ref_result)
-        else:
-            dataset_target_chempots = target_chempots_from_activity(acr_def_component
-                                                            , dataset_activities, conditions[v.T], ref_result)           # calculate the error
-            
-        dataset_residuals = (np.asarray(dataset_computed_chempots) - np.asarray(dataset_target_chempots, dtype=float)).tolist()
-        _log.debug('Data: %s, chemical potential difference: %s, reference: %s', dataset_activities, dataset_residuals, ds["reference"])
-        residuals.extend(dataset_residuals)
-        weights.extend(dataset_weights)
+    weights_ = (std_dev/data_weight).flatten()
         
-    return residuals, weights
+
+    _log.debug('Data: %s, Fusion:q!: difference: %s, reference: %s', values, residuals,fusion_data['dataset_reference'])
+
+    return residuals, weights_
 
 
 # TODO: roll this function into ActivityResidual
 
-def calculate_fusion_error(activity_data: Sequence[Dict[str, Any]],
+def calculate_fusion_error(fusion_data: Sequence[Dict[str, Any]],
                         parameters: np.ndarray = None,
                         data_weight: int = 1.0,
                         approximate_equilibrium: bool = False) -> float:
                         
-    if len(activity_data) == 0:
+    if len(fusion_data) == 0:
         return 0.0
-    residuals, weights = calc_difference_activity(activity_data, parameters)
-
-    likelihood = np.sum(norm(0, scale=500/data_weight).logpdf(residuals))
-    if np.isnan(likelihood):
+    differences=[]
+    wts=[]
+    for fus_dat in fusion_data:    
+        residuals, weights = calculate_fusion_residuals(fus_dat, parameters)
+        if np.any(np.isinf(residuals) | np.isnan(residuals)):
+            # NaN or infinity are assumed calculation failures. If we are
+            # calculating log-probability, just bail out and return -infinity.
+            return -np.inf
+        differences.append(residuals[0])
+        wts.append(weights)       
+    differences = np.concatenate(differences, axis=0)
+    weights = np.concatenate(wts, axis=0)
+    likelihood = norm(loc=0.0, scale=weights).logpdf(differences)
+    if np.isnan(likelihood).any():
 #        # TODO: revisit this case and evaluate whether it is resonable for NaN
         # to show up here. When this comment was written, the test
         # test_subsystem_activity_probability would trigger a NaN.
         return -np.inf
-    return likelihood
+    return np.sum(likelihood)
 
-                        
-################JORGE IS EDITING THIS OUT 08-15-22########
-#def calculate_activity_error(dbf, comps, phases, datasets, parameters=None, phase_models=None, callables=None, data_weight=1.0) -> float:
-#    """
-#    Return the sum of square error from activity data
-#
-#    Parameters
-#    ----------
- #   dbf : pycalphad.Database
-#        Database to consider
-#    comps : list
-#        List of active component names
-#    phases : list
-#        List of phases to consider
-#    datasets : espei.utils.PickleableTinyDB
-#        Datasets that contain single phase data
-#    parameters : dict
-#        Dictionary of symbols that will be overridden in pycalphad.equilibrium
-#    phase_models : dict
-#        Phase models to pass to pycalphad calculations
-#    callables : dict
-#        Callables to pass to pycalphad
-#    data_weight : float
-#        Weight for standard deviation of activity measurements, dimensionless.
-#        Corresponds to the standard deviation of differences in chemical
-#        potential in typical measurements of activity, in J/mol.
-#
-#    Returns
-#    -------
-#    float
-#        A single float of the likelihood
-#
-#
-#    """
-#    residuals, weights = calculate_activity_residuals(dbf, comps, phases, datasets, parameters=None, phase_models=None, callables=None, data_weight=1.0)
-#    likelihood = np.sum(norm(0, scale=weights).logpdf(residuals))
-#    if np.isnan(likelihood):
-        # TODO: revisit this case and evaluate whether it is resonable for NaN
-        # to show up here. When this comment was written, the test
-        # test_subsystem_activity_probability would trigger a NaN.
-#        return -np.inf
-#    return likelihood
-
-
-
-
-
-# TODO: the __init__ method should pre-compute Model and PhaseRecord objects
-#       similar to the other residual functions, which will be much more performant.
-# TODO: it seems possible (likely?) that "global" callables that were used
-#       previously could be incorrect if there are activity datasets with
-#       different sets of active components. Usually models, callables, and
-#       phase records are tied 1:1 with a set of components. For now, callables
-#       will never be built, but this will almost certainly cause a performance
-#       regression. Model will also not be pre-built so we can properly use
-#       custom user models
 class FusionResidual(ResidualFunction):
     def __init__(
         self,
@@ -618,7 +370,7 @@ class FusionResidual(ResidualFunction):
         return residuals, weights
 
     def get_likelihood(self, parameters: npt.NDArray) -> float:
-        likelihood = calculate_fusion_error(self.fusion_data,parameters=parameters, data_weight=self.weight)
+        likelihood = calculate_fusion_error(self.fusion_data, parameters, data_weight=self.weight)
         return likelihood
 
 

@@ -131,8 +131,8 @@ def _subsample_phase_points(phase_record, phase_points, target_composition, addi
 
     # Find the points indicdes where the mass is within the radius of minimum distance + additional_distance_radius
     distances = np.mean(np.abs(phase_compositions - target_composition), axis=1)
-    idxs = np.nonzero(distances < (distances.min() + additional_distance_radius))[0]
 
+    idxs = np.nonzero(distances < (distances.min() + additional_distance_radius))[0]
     # Return the sub-space of points where this condition holds valid
     return phase_points[idxs]
 
@@ -175,6 +175,8 @@ def get_zpf_data(dbf: Database, comps: Sequence[str], phases: Sequence[str], dat
         all_regions = data['values']
         conditions = data['conditions']
         phase_regions = []
+###03-31-23 Jorge added Temp empty list and will add to the final dictionary for get data##
+        Temp=[]
         # Each phase_region is one set of phases in equilibrium (on a tie-line),
         # e.g. [["ALPHA", ["B"], [0.25]], ["BETA", ["B"], [0.5]]]
         for idx, phase_region in enumerate(all_regions):
@@ -182,6 +184,7 @@ def get_zpf_data(dbf: Database, comps: Sequence[str], phases: Sequence[str], dat
             pot_conds = _extract_pot_conds(conditions, idx)
             pot_conds.setdefault(v.N, 1.0) # Add v.N condition, if missing
             # Extract all the phases and compositions from the tie-line points
+            Temp.append(pot_conds[v.T])
             vertices = []
             hyperplane_vertices = []
             for vertex in phase_region:
@@ -215,10 +218,11 @@ def get_zpf_data(dbf: Database, comps: Sequence[str], phases: Sequence[str], dat
                 hyperplane_vertices = vertices
             region = PhaseRegion(hyperplane_vertices, vertices, pot_conds, species, data_phases, models)
             phase_regions.append(region)
-
+            
         data_dict = {
             'weight': data.get('weight', 1.0),
             'phase_regions': phase_regions,
+            'temperature': Temp,
             'dataset_reference': data['reference']
         }
         zpf_data.append(data_dict)
@@ -330,6 +334,7 @@ def driving_force_to_hyperplane(target_hyperplane_chempots: np.ndarray,
             _log.debug('Calculation failure: constrained equilibrium not converged for %s, conditions: %s, parameters %s', current_phase, cond_dict, parameters)
             return np.inf
         driving_force = float(np.dot(target_hyperplane_chempots, vertex.composition) - float(energy))
+#        print(driving_force,str_statevar_dict)
     return driving_force
 
 
@@ -377,6 +382,7 @@ def calculate_zpf_driving_forces(zpf_data: Sequence[Dict[str, Any]],
         weight = data['weight']
         dataset_ref = data['dataset_reference']
         # for the set of phases and corresponding tie-line verticies in equilibrium
+#        print('This is the data',data)
         for phase_region in data['phase_regions']:
             # 1. Calculate the average multiphase hyperplane
             eq_str = phase_region.eq_str()
@@ -397,6 +403,14 @@ def calculate_zpf_driving_forces(zpf_data: Sequence[Dict[str, Any]],
                 data_driving_forces.append(driving_force)
                 data_weights.append(weight)
                 _log.debug('Equilibria: (%s), current phase: %s, hyperplane: %s, driving force: %s, reference: %s', eq_str, vertex.phase_name, target_hyperplane, driving_force, dataset_ref)
+
+###03-31-23 Jorge added ration_temp_dgrf and new_temp and new data_driving_forces 
+#        ratio_temp_drg_f=len(data_driving_forces)/len(data['temperature'])
+#        print('Before loop',len(data_driving_forces),len(data_driving_forces),len(data['temperature']))
+#This code makes assumption that phase region types present all are same nature ie. all 2 phase equilibria in one file and so on
+#        new_temp=list(np.repeat(data['temperature'],ratio_temp_drg_f))
+#        data_driving_forces=[i/(float(v.R)*j) for i,j in zip(data_driving_forces,new_temp)]
+#        print('After loop',len(data_driving_forces),len(new_temp))
         driving_forces.append(data_driving_forces)
         weights.append(data_weights)
     return driving_forces, weights

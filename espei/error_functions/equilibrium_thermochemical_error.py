@@ -255,6 +255,7 @@ def get_equilibrium_thermochemical_data(dbf: Database, comps: Sequence[str],
         (where('output') != 'ZPF') & (~where('solver').exists()) &
         (where('output').test(lambda x: 'ACR' not in x)) &  # activity data not supported yet
         (where('output').test(lambda x: 'Y' not in x)) &  # site fraction data not supported
+        (where('output').test(lambda x: 'FUSI' not in x)) &  # fusion data not supported        
         (where('components').test(lambda x: set(x).issubset(comps))) &
         (where('phases').test(lambda x: set(x).issubset(set(phases))))
     )
@@ -310,13 +311,11 @@ def calc_prop_differences(eqpropdata: EqPropData,
     output = eqpropdata.output
     weights = np.array(eqpropdata.weight, dtype=np.float_)
     samples = np.array(eqpropdata.samples, dtype=np.float_)
-
     calculated_data = []
     for comp_conds in eqpropdata.composition_conds:
         cond_dict = OrderedDict(**pot_conds, **comp_conds)
         # str_statevar_dict must be sorted, assumes that pot_conds are.
         str_statevar_dict = OrderedDict([(str(key), vals) for key, vals in pot_conds.items()])
-
         grid = calculate_(species, phases, str_statevar_dict, models, phase_records, pdens=50, fake_points=True)
         multi_eqdata = _equilibrium(phase_records, cond_dict, grid)
         # TODO: could be kind of slow. Callables (which are cachable) must be built.
@@ -325,7 +324,6 @@ def calc_prop_differences(eqpropdata: EqPropData,
             raise ValueError(f"Property {output} cannot be used to calculate equilibrium thermochemical error because each phase has a unique value for this property.")
 
         vals = getattr(propdata, output).flatten().tolist()
-        print('what is comp_conds',cond_dict, output,vals,samples)
 
         calculated_data.extend(vals)
 
@@ -339,7 +337,6 @@ def calc_prop_differences(eqpropdata: EqPropData,
 
 def calculating_pseudo_line(elemental_composition,defined_components,component_fractions):
 
-#    pseudo_line=component_ratio(defined_components) 
     elemental_composition=[i for i in elemental_composition if i!='VA']
     pseudo_line=defined_components
     dependent_comp=1-sum([i for i in component_fractions.values()])
@@ -402,7 +399,6 @@ def calculate_equilibrium_thermochemical_probability(eq_thermochemical_data: Seq
             return -np.inf
         differences.append(diffs)
         weights.append(wts)
-
     differences = np.concatenate(differences, axis=0)
     weights = np.concatenate(weights, axis=0)
     probs = norm(loc=0.0, scale=weights).logpdf(differences)
