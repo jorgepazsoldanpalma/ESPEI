@@ -175,8 +175,6 @@ def get_zpf_data(dbf: Database, comps: Sequence[str], phases: Sequence[str], dat
         all_regions = data['values']
         conditions = data['conditions']
         phase_regions = []
-###03-31-23 Jorge added Temp empty list and will add to the final dictionary for get data##
-        Temp=[]
         # Each phase_region is one set of phases in equilibrium (on a tie-line),
         # e.g. [["ALPHA", ["B"], [0.25]], ["BETA", ["B"], [0.5]]]
         for idx, phase_region in enumerate(all_regions):
@@ -184,7 +182,6 @@ def get_zpf_data(dbf: Database, comps: Sequence[str], phases: Sequence[str], dat
             pot_conds = _extract_pot_conds(conditions, idx)
             pot_conds.setdefault(v.N, 1.0) # Add v.N condition, if missing
             # Extract all the phases and compositions from the tie-line points
-            Temp.append(pot_conds[v.T])
             vertices = []
             hyperplane_vertices = []
             for vertex in phase_region:
@@ -222,7 +219,6 @@ def get_zpf_data(dbf: Database, comps: Sequence[str], phases: Sequence[str], dat
         data_dict = {
             'weight': data.get('weight', 1.0),
             'phase_regions': phase_regions,
-            'temperature': Temp,
             'dataset_reference': data['reference']
         }
         zpf_data.append(data_dict)
@@ -382,7 +378,6 @@ def calculate_zpf_driving_forces(zpf_data: Sequence[Dict[str, Any]],
         weight = data['weight']
         dataset_ref = data['dataset_reference']
         # for the set of phases and corresponding tie-line verticies in equilibrium
-#        print('This is the data',data)
         for phase_region in data['phase_regions']:
             # 1. Calculate the average multiphase hyperplane
             eq_str = phase_region.eq_str()
@@ -400,17 +395,14 @@ def calculate_zpf_driving_forces(zpf_data: Sequence[Dict[str, Any]],
                 if np.isinf(driving_force) and short_circuit:
                     _log.debug('Equilibria: (%s), current phase: %s, hyperplane: %s, driving force: %s, reference: %s. Short circuiting.', eq_str, vertex.phase_name, target_hyperplane, driving_force, dataset_ref)
                     return [[np.inf]], [[np.inf]]
+###06-28-23 Jorge added the following line below in order to find driving forces normalized to RT
+                driving_force=driving_force/(float(v.R)*phase_region.potential_conds[v.T])
+##########
                 data_driving_forces.append(driving_force)
                 data_weights.append(weight)
                 _log.debug('Equilibria: (%s), current phase: %s, hyperplane: %s, driving force: %s, reference: %s', eq_str, vertex.phase_name, target_hyperplane, driving_force, dataset_ref)
 
-###03-31-23 Jorge added ration_temp_dgrf and new_temp and new data_driving_forces 
-#        ratio_temp_drg_f=len(data_driving_forces)/len(data['temperature'])
-#        print('Before loop',len(data_driving_forces),len(data_driving_forces),len(data['temperature']))
-#This code makes assumption that phase region types present all are same nature ie. all 2 phase equilibria in one file and so on
-#        new_temp=list(np.repeat(data['temperature'],ratio_temp_drg_f))
-#        data_driving_forces=[i/(float(v.R)*j) for i,j in zip(data_driving_forces,new_temp)]
-#        print('After loop',len(data_driving_forces),len(new_temp))
+
         driving_forces.append(data_driving_forces)
         weights.append(data_weights)
     return driving_forces, weights
@@ -434,12 +426,15 @@ def calculate_zpf_error(zpf_data: Sequence[Dict[str, Any]],
     if len(zpf_data) == 0:
         return 0.0
     driving_forces, weights = calculate_zpf_driving_forces(zpf_data, parameters, approximate_equilibrium, short_circuit=True)
+#    print('calculate_zpf_error',len(driving_forces),len(weights))
+#    print('weights',np.concatenate(weights))
+#    print('driving force',np.concatenate(driving_forces))
     # Driving forces and weights are 2D ragged arrays with the shape (len(zpf_data), len(zpf_data['values']))
     driving_forces = np.concatenate(driving_forces)
     weights = np.concatenate(weights)
     if np.any(np.logical_or(np.isinf(driving_forces), np.isnan(driving_forces))):
         return -np.inf
-    log_probabilites = norm.logpdf(driving_forces, loc=0, scale=1000/data_weight/weights)
+    log_probabilites = norm.logpdf(driving_forces, loc=0, scale=0.1/data_weight/weights)
     _log.debug('Data weight: %s, driving forces: %s, weights: %s, probabilities: %s', data_weight, driving_forces, weights, log_probabilites)
     return np.sum(log_probabilites)
 
