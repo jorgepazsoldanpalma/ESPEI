@@ -255,7 +255,8 @@ def get_equilibrium_thermochemical_data(dbf: Database, comps: Sequence[str],
         (where('output') != 'ZPF') & (~where('solver').exists()) &
         (where('output').test(lambda x: 'ACR' not in x)) &  # activity data not supported yet
         (where('output').test(lambda x: 'Y' not in x)) &  # site fraction data not supported
-        (where('output').test(lambda x: 'FUSI' not in x)) &  # fusion data not supported        
+        (where('output').test(lambda x: 'FUSI' not in x)) &  # fusion data not supported    
+        (where('output').test(lambda x: 'PP' not in x)) &  # partial_pressure data not supported                
         (where('components').test(lambda x: set(x).issubset(comps))) &
         (where('phases').test(lambda x: set(x).issubset(set(phases))))
     )
@@ -328,7 +329,6 @@ def calc_prop_differences(eqpropdata: EqPropData,
         calculated_data.extend(vals)
 
     calculated_data = np.array(calculated_data, dtype=np.float_)
-
     assert calculated_data.shape == samples.shape, f"Calculated data shape {calculated_data.shape} does not match samples shape {samples.shape}"
     assert calculated_data.shape == weights.shape, f"Calculated data shape {calculated_data.shape} does not match weights shape {weights.shape}"
     differences = calculated_data - samples

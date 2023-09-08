@@ -125,8 +125,8 @@ def get_activity_data(dbf: Database, comps: Sequence[str],
         lst_def_component_comps=[]
         if data_defined_components=='COMP':
             defined_components=data['defined_components']
-            first_defined_component=[key for key in defined_components.keys()][0]
-            reference_stoich=defined_components[first_defined_component]
+            ref_state=data['reference_state']['reference_spec']
+            reference_stoich=defined_components[ref_state]
             converted_ref_compositions=calculating_pseudo_line(data_comps,defined_components,ref_compositions)
             defined_unary_components=[key.split('_')[1] for key,val in converted_ref_compositions.items() if val>0.0]
             
@@ -335,6 +335,7 @@ def calc_difference_activity(activity_data: Sequence[Dict[str, Any]],
 
         dataset_state_var=OrderedDict([(getattr(v, key), unpack_condition(dataset_state_var[key])) for key in sorted(dataset_state_var.keys())])           
         calculated_data=[]
+        
         for cond in list_component_dataset:
             if len(cond)>1:
                 dep_comp=[i for i in cond.keys()][:-1]
@@ -346,7 +347,6 @@ def calc_difference_activity(activity_data: Sequence[Dict[str, Any]],
             multi_eqdata =_equilibrium(phase_records, 
             cond_dict, grid)
             Chem_Pot=multi_eqdata.MU.squeeze()
-
             if defined_components=='COMP':
                 Chem_components=list(sorted([i for i in reference_stoichiometric.keys()]))
                 Chem_Potential=[sum([reference_stoichiometric[comp]*mu 
@@ -358,15 +358,14 @@ def calc_difference_activity(activity_data: Sequence[Dict[str, Any]],
             activity= [(mu - Ref_Chem_Potential) for mu in Chem_Potential]
             calculated_data.append(activity)   
             
-
         calculated_data = np.array(calculated_data, dtype=np.float_)
         samples=np.array(samples,dtype=np.float)
-    
+
 ####CHECK THIS AGAIN FOR ARRAY SHAPE THAT WILL BE IMPORTANT####
 #    assert calculated_data.shape == samples.shape, f"Calculated data shape {calculated_data.shape} does not match samples shape {samples.shape}"
 #    assert calculated_data.shape == weight.shape, f"Calculated data shape {calculated_data.shape} does not match weights shape {weights.shape}"
 ##############################################################
-        differences = calculated_data - samples
+        differences = calculated_data.flatten() - samples.flatten()
         output=calculated_data.flatten().tolist()
         _log.debug('Output: %s differences: %s, weights: %s, reference: %s', output, differences, weight, dataset_ref)
         act_diff.append(differences)
@@ -513,8 +512,11 @@ def calculate_activity_error(activity_data: Sequence[Dict[str, Any]],
     if len(activity_data) == 0:
         return 0.0
     residuals, weights = calc_difference_activity(activity_data, parameters)
-###CHANGE THIS BACK TO 500!
-    likelihood = np.sum(norm(0, scale=500/data_weight).logpdf(residuals))
+    likelihood=[]
+    for res in residuals:
+        P_likelihood=np.sum(norm(0, scale=500/data_weight).logpdf(res))
+        likelihood.append(P_likelihood)
+    likelihood =sum(likelihood)
     if np.isnan(likelihood):
 #        # TODO: revisit this case and evaluate whether it is resonable for NaN
         # to show up here. When this comment was written, the test

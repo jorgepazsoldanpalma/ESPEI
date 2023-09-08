@@ -8,3 +8,4 @@ from .non_equilibrium_thermochemical_error import calculate_non_equilibrium_ther
 from .zpf_error import calculate_zpf_error, get_zpf_data
 from .equilibrium_thermochemical_error import calculate_equilibrium_thermochemical_probability, get_equilibrium_thermochemical_data
 from .Y_error_Jorge import calculate_Y_difference, get_Y_data, calculate_Y_probability
+#from .PartialPressure_Jorge import calculate_PP_difference, get_partial_pressure_data, calculate_PP_probability

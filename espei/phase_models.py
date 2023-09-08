@@ -13,7 +13,6 @@ class ModelMetadata(BaseModel):
     # Fully qualified import path for a Python class that follows the pycalphad.Model API
     model: Optional[PyObject]
 
-
 class PhaseModelSpecification(BaseModel):
     components: List[ComponentName]
     phases: Dict[PhaseName, ModelMetadata]

@@ -71,12 +71,15 @@ def check_dataset(dataset: Dataset):
     DatasetError
         If an error is found in the dataset
     """
-    is_equilibrium = 'solver' not in dataset.keys() and dataset['output'] != 'ZPF'
+    is_equilibrium = 'solver' not in dataset.keys() and dataset['output'] != 'ZPF' 
     is_activity = dataset['output'].startswith('ACR')
     is_sitefraction=dataset['output']=='Y'
     is_fusion='FUSI' in dataset['output'].split('_')
+    is_partial_pressure= 'PP' in dataset['output']
     if is_fusion is True:
         output_fusion=dataset['output'].split('_')
+    if is_partial_pressure is True:
+        output_pp=dataset['output'].split('_')
     if is_activity is True:
         activity_components=dataset['output'].split('_')
     if is_equilibrium is True:
@@ -117,6 +120,13 @@ def check_dataset(dataset: Dataset):
         for ele in dataset['defined_components'].get(def_comp).keys() if ele in ele_components]))      
     if is_fusion:
         ref_state = dataset['reference_state']   
+        conditions = dataset['conditions']
+        if dataset.get('defined_components')!=None:
+            components=[def_comp for def_comp in dataset['defined_components'].keys()]  
+            comp_conditions = {k: v for k, v in conditions.items() if k.startswith('X_')}  
+        else:
+            comp_conditions = {k: v for k, v in conditions.items() if k.startswith('X_')}
+    if is_partial_pressure:
         conditions = dataset['conditions']
         if dataset.get('defined_components')!=None:
             components=[def_comp for def_comp in dataset['defined_components'].keys()]  
@@ -168,6 +178,10 @@ def check_dataset(dataset: Dataset):
         num_x_conds = [len(v) for _, v in comp_conditions.items()]
     # check that all of the correct phases are present
     elif is_fusion:
+        values_shape = np.array(values).shape
+        # check each composition condition is the same shape
+        num_x_conds = [len(v) for _, v in comp_conditions.items()]
+    elif is_partial_pressure:
         values_shape = np.array(values).shape
         # check each composition condition is the same shape
         num_x_conds = [len(v) for _, v in comp_conditions.items()]

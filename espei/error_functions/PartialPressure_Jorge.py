@@ -46,7 +46,7 @@ class PotentialRegion:
     models: Dict[str,Model]
 
 
-def get_fusion_data(dbf: Database, comps: Sequence[str],
+def get_partial_pressure_data(dbf: Database, comps: Sequence[str],
                                         phases: Sequence[str],
                                         datasets: PickleableTinyDB,
                                         model: Optional[Dict[str, Model]] = None,
@@ -86,29 +86,46 @@ def get_fusion_data(dbf: Database, comps: Sequence[str],
     """
 
     desired_data = datasets.search(
-        (tinydb.where('output').test(lambda x: 'FUSI' in x)) &
+        (tinydb.where('output').test(lambda x: 'PP' in x)) &
         (tinydb.where('components').test(lambda x: set(x).issubset(comps))) &
         (tinydb.where('phases').test(lambda x: set(x).issubset(set(phases))))        
         )
-    fusion_data=[] 
+    
+    pp_data=[] 
     for data in desired_data:
         data_output=data['output'].split('_')[0]
         params_keys, _ = extract_parameters(parameters)
         def_comp=data['output'].split('_')
-        if len(def_comp)>2:
+        if len(def_comp)>1:
             _COMP='COMP'
         else:
             _COMP='NONE'
+   
         data_comps = list(set(data['components']))
         species = sorted(unpack_components(dbf, data_comps), key=str)
+        gas_species= data['species']
+        
         if data['phases'] is None:
             data_phases = filter_phases(dbf, species, candidate_phases=phases)
         else:
             data_phases=data['phases']
-        ref_data_phases=data['reference_state']['phases']
+            
+        filter_gas_species=[spec for spec in species if spec.charge==0]
+        for name,cons in gas_species.items():
+            filter_gas_species=[spec for spec in filter_gas_species if spec.name==name]
+            total_num_mol=sum([sto for ele,sto in cons.items()])            
+            gas_comp_conds={'X_'+ele:sto/total_num_mol for ele,sto in cons.items()}
+            gas_comp_conds.popitem()
+        gas_phase=filter_phases(dbf, filter_gas_species, candidate_phases=phases)
+        data_ref_state={'phases':gas_phase, 'species':filter_gas_species}
         samples=data['values']
-        models = instantiate_models(dbf, species, data_phases, model=model, parameters=parameters)
-        ref_models=instantiate_models(dbf, species, ref_data_phases, model=model, parameters=parameters)
+        models = instantiate_models(dbf, species, data_phases, model=model,\
+        parameters=parameters)
+        for mod in models.values():
+            mod.shift_gas_state(data_ref_state, dbf, output='GM')
+
+#        gas_models= instantiate_models(dbf, filter_gas_species, gas_phase,\
+#        model=model, parameters=parameters)
         phase_recs = build_phase_records(dbf
         , species
         , data_phases
@@ -117,61 +134,51 @@ def get_fusion_data(dbf: Database, comps: Sequence[str],
         , parameters=parameters
         , build_gradients=True
         , build_hessians=True)
-        
-        ref_phase_records= build_phase_records(dbf
-        , species
-        , ref_data_phases
-        , {v.N, v.P, v.T}
-        , ref_models
-        , parameters=parameters
-        , build_gradients=True
-        , build_hessians=True)
+
+#        gas_phase_recs= build_phase_records(dbf
+#        , filter_gas_species
+#        , gas_phase
+#        , {v.N, v.P, v.T}
+#        , gas_models
+#        , parameters=parameters
+#        , build_gradients=True
+#        , build_hessians=True)
         
         conditions=data['conditions']
-        ref_conditions=data['reference_state']['conditions']
-
         potential_conds={key:val for key,val in conditions.items() if key=="T" or key=="P"}
         potential_conds.setdefault('N', 1.0)
         Potential_Reg=PotentialRegion(potential_conds,species,data_phases,models)
-        
+        Gas_Potential_Reg=PotentialRegion(potential_conds,filter_gas_species,gas_phase,gas_models)
         if _COMP=='NONE':
             comp_conds={key:val for key,val in conditions.items() if key!="T" and key!="P"}
         else:
             def_components=data['defined_components']
             def_comp_conds={key.split('_')[1]:val for key,val in conditions.items() if key!="T" and key!="P"}
             comp_conds=calculating_pseudo_line(data_comps,def_components,def_comp_conds)     
-            
-        ref_potential={key:value for key,value in ref_conditions.items() if not key.startswith('X_')}
-        ref_potential.setdefault('N', 1.0)
-        ref_compositions={key:val for key,val in ref_conditions.items() if key!="T" and key!="P"}
-        ref_Potential_Reg=PotentialRegion(ref_potential,species,ref_data_phases,ref_models)
-        
-        
-        final_ref_potential=OrderedDict([(getattr(v, key), unpack_condition(ref_potential[key])) for key in sorted(ref_potential.keys()) if not key.startswith('X_')])  
         final_potential= OrderedDict([(getattr(v, key), unpack_condition(potential_conds[key])) for key in sorted(potential_conds.keys()) if not key.startswith('X_')])
-        
         total_num_calculations=np.prod([len(vals) for vals in final_potential.values()])
         dataset_weights = np.array(data.get('weight', 1.0)) * np.ones(total_num_calculations)
 
-        
         data_ref=data['reference']
         data_dict={
         'weight':dataset_weights,
+        'references':data_ref,
         'database':dbf,
         'output':data_output,
+        'Gas_species':gas_species,
+        'Gas_phase_records':gas_phase_recs,
+        'Gas_Potential_Reg':Gas_Potential_Reg,
         'Potential_region':Potential_Reg,
-        'Ref_Potential_region':ref_Potential_Reg,
         'phase_records':phase_recs,
-        'reference_phase_records':ref_phase_records,
-        'dataset_reference':data_ref,
         'component_dict': comp_conds,
+        'gas_composition':gas_comp_conds,
         'Defined_components':_COMP,
         'param_variables':params_keys,
         'samples':samples
         }
         
-        fusion_data.append(data_dict)
-    return fusion_data        
+        pp_data.append(data_dict)
+    return pp_data        
  
 def calculating_pseudo_line(elemental_composition,defined_components,component_fractions):
 
@@ -209,7 +216,7 @@ def calculating_pseudo_line(elemental_composition,defined_components,component_f
 
         
 # TODO: roll this function into ActivityResidual
-def calculate_fusion_residuals(fusion_data: Sequence[Dict[str, Any]],
+def calculate_PP_difference(partial_pressure_data: Sequence[Dict[str, Any]],
                           parameters: np.ndarray,
                           approximate_equilibrium: Optional[bool] = False,
                           ) -> Tuple[np.ndarray, np.ndarray]:
@@ -220,10 +227,10 @@ def calculate_fusion_residuals(fusion_data: Sequence[Dict[str, Any]],
     1. Get the datasets
     2. For each dataset
 
-        a. Calculate reference state equilibrium
-        b. Calculate current chemical potentials
-        c. Find the target chemical potentials
-        d. Calculate error due to chemical potentials
+        a. Calculate the partial pressure of species
+        b. Will also calculate total vapor pressure of the system 
+        c. Compare with target partial pressure/Gibbs energy
+
     """
     std_dev = 500  # J/mol
     
@@ -232,88 +239,103 @@ def calculate_fusion_residuals(fusion_data: Sequence[Dict[str, Any]],
     else:
         _equilibrium = equilibrium_
     residuals=[]
-#    for data in fusion_data:
-    defined_comp=fusion_data['Defined_components']
-    data_weight= fusion_data['weight']
-    therm_property=fusion_data['output']  # the property of interest
-    data_comps = fusion_data['component_dict']
-    dbf=fusion_data['database']
+    gas_spec= partial_pressure_data['Gas_species']
+    defined_comp=partial_pressure_data['Defined_components']
+    data_weight= partial_pressure_data['weight']
+    therm_property='GM'  # the property of interest
+    data_comps = partial_pressure_data['component_dict']
+    gas_comps = partial_pressure_data['gas_composition']
+    dbf=partial_pressure_data['database']
     def_com_ref_condition={}
-    phase_records=fusion_data['phase_records']
-    ref_phase_records=fusion_data['reference_phase_records']
+    phase_records=partial_pressure_data['phase_records']
+    Gas_phase_records=partial_pressure_data['Gas_phase_records']
     update_phase_record_parameters(phase_records, parameters)
-    update_phase_record_parameters(ref_phase_records, parameters)
-    dataset_species=fusion_data['Potential_region'].species
-    dataset_phases=fusion_data['Potential_region'].phases
-    dataset_models=fusion_data['Potential_region'].models
-    dataset_state_var=fusion_data['Potential_region'].potential_conds
-    ref_dataset_species=fusion_data['Ref_Potential_region'].species
-    ref_dataset_phases=fusion_data['Ref_Potential_region'].phases
-    ref_dataset_models=fusion_data['Ref_Potential_region'].models
-    ref_dataset_state_var=fusion_data['Ref_Potential_region'].potential_conds       
-    samples=fusion_data['samples']
-    param_keys=fusion_data['param_variables']
+    dataset_species=partial_pressure_data['Potential_region'].species
+    dataset_phases=partial_pressure_data['Potential_region'].phases
+    dataset_models=partial_pressure_data['Potential_region'].models
+    dataset_pot_conditions=partial_pressure_data['Potential_region'].potential_conds
+    gas_dataset_species=partial_pressure_data['Gas_Potential_Reg'].species
+    gas_dataset_phases=partial_pressure_data['Gas_Potential_Reg'].phases
+    gas_dataset_models=partial_pressure_data['Gas_Potential_Reg'].models
+    samples=partial_pressure_data['samples']
+    param_keys=partial_pressure_data['param_variables']
     params_dict = OrderedDict(zip(map(str, param_keys), parameters))
-    pot_cond=OrderedDict([(getattr(v, key), unpack_condition(dataset_state_var[key])) for key in sorted(dataset_state_var.keys())])    
-    dataset_state_var = OrderedDict([(str(key), vals) for key, vals in sorted(dataset_state_var.items())])
-    grid=calculate_(dataset_species
-    ,dataset_phases,dataset_state_var,dataset_models
-    ,phase_records, pdens=50, fake_points=True)
-    
-    ref_grid=calculate_(ref_dataset_species
-    ,ref_dataset_phases,ref_dataset_state_var,ref_dataset_models
-    ,ref_phase_records, pdens=50, fake_points=True)
-    
-    
-    ref_dataset_state_var=OrderedDict([(getattr(v, key), unpack_condition(ref_dataset_state_var[key])) for key in sorted(ref_dataset_state_var.keys())])    
+    references=partial_pressure_data['references']
     
     if defined_comp=='NONE':
         comp_cond=OrderedDict([(v.X(key[2:]), unpack_condition(data_comps[key])) for key,val in sorted(data_comps.items()) if key.startswith('X_')]) 
     elif defined_comp=='COMP':
         defined_unary_components=[key.split('_')[1] for key,val in data_comps.items() if val>0.0]
-        depend_unary_copmponents=sorted(defined_unary_components)[:-1]     
+        depend_unary_components=sorted(defined_unary_components)[:-1]     
         comp_cond = OrderedDict([(v.X(key[2:]), unpack_condition(data_comps[key])) \
         for key,val in sorted(data_comps.items()) \
-        if key.startswith('X_') and val!=0.0 and key[2:] in depend_unary_copmponents])           
-    cond_dict = OrderedDict(**pot_cond, **comp_cond)    
-    ref_cond_dict= OrderedDict(**ref_dataset_state_var, **comp_cond)   
+        if key.startswith('X_') and val!=0.0 and key[2:] in depend_unary_components]) 
+    gas_comp_conds=OrderedDict([(v.X(key[2:]), unpack_condition(gas_comps[key])) \
+    for key,val in sorted(gas_comps.items()) \
+    if key.startswith('X_') and val!=0.0])
     
-    multi_eqdata =_equilibrium(phase_records, 
-        cond_dict, grid)  
-    ref_multi_eqdata =_equilibrium(ref_phase_records, 
-        ref_cond_dict, ref_grid)             
-    propdata = _eqcalculate(dbf, dataset_species, dataset_phases, cond_dict
-    , therm_property, data=multi_eqdata, per_phase=False, callables=None, parameters=params_dict, model=dataset_models)
-    ref_propdata = _eqcalculate(dbf, ref_dataset_species, ref_dataset_phases, ref_cond_dict
-    , therm_property, data=ref_multi_eqdata, per_phase=False, callables=None, parameters=params_dict, model=ref_dataset_models)
-    ref_values=getattr(ref_propdata, therm_property).flatten().tolist()[0]
-    values=getattr(propdata, therm_property).flatten().tolist()
-    values=[val-ref_values for val in values]
-    res=np.array(samples).flatten()[0]-values
+    values=[]
+    for temp in dataset_pot_conditions['T']:
+        dataset_state_var=dataset_pot_conditions
+        dataset_state_var['T']=temp 
+        pot_cond=OrderedDict([(getattr(v, key), unpack_condition(dataset_state_var[key])) for key in sorted(dataset_state_var.keys())])    
+        dataset_state_var = OrderedDict([(str(key), vals) for key, vals in \
+        sorted(dataset_state_var.items())])
+        grid=calculate_(dataset_species
+        ,dataset_phases,dataset_state_var,dataset_models
+        ,phase_records, pdens=50, fake_points=True)
+
+        ref_grid=calculate_(gas_dataset_species
+        ,gas_dataset_phases,dataset_state_var,gas_dataset_models
+        ,Gas_phase_records, pdens=50, fake_points=True)
+        GAS_dataset_state_var=OrderedDict([(getattr(v, key), unpack_condition(dataset_state_var[key]))\
+        for key in sorted(dataset_state_var.keys())])    
+        cond_dict = OrderedDict(**pot_cond, **comp_cond)
+        ref_cond_dict= OrderedDict(**GAS_dataset_state_var, **gas_comp_conds)  
+
+        multi_eqdata =_equilibrium(phase_records, 
+            cond_dict, grid)  
+        ref_multi_eqdata =_equilibrium(Gas_phase_records, 
+            ref_cond_dict, ref_grid)
+        ref_gas_species_mu=ref_multi_eqdata.GM.squeeze()
+#        print('Gas Gibbs energy',ref_gas_species_mu)
+        Chemical_Potentials=multi_eqdata.MU.squeeze()
+        Components=multi_eqdata.coords['component']
+        Dict_chem_pot={ele:mu for ele,mu in zip(Components,Chemical_Potentials)}
+        num_of_specie=sum([stoi for j,i in gas_spec.items() for ele,stoi in i.items()])
+        Chem_pot_spec=sum([Dict_chem_pot[ele]*stoi/num_of_specie for j,i in gas_spec.items() for ele,stoi in i.items()])
+        RTemp= v.R*temp
+        pp_spec=float(num_of_specie*(Chem_pot_spec-ref_gas_species_mu)/RTemp)
+        pp_spec=np.exp(pp_spec)
+        values.append(pp_spec)
+    
+    samples=np.array(samples).flatten()
+    res=samples-values
+
 
     residuals.append(res)
 
     weights_ = (std_dev/data_weight).flatten()
         
 
-    _log.debug('Data: %s, Fusion difference: %s, reference: %s', values, residuals,fusion_data['dataset_reference'])
+    _log.debug('Data: %s, Partial_Pressure: difference: %s, reference: %s', values, residuals,references)
 
     return residuals, weights_
 
 
 # TODO: roll this function into ActivityResidual
 
-def calculate_fusion_error(fusion_data: Sequence[Dict[str, Any]],
+def calculate_PP_probability(partial_pressure_data: Sequence[Dict[str, Any]],
                         parameters: np.ndarray = None,
                         data_weight: int = 1.0,
                         approximate_equilibrium: bool = False) -> float:
                         
-    if len(fusion_data) == 0:
+    if len(partial_pressure_data) == 0:
         return 0.0
     differences=[]
     wts=[]
-    for fus_dat in fusion_data:    
-        residuals, weights = calculate_fusion_residuals(fus_dat, parameters)
+    for pp_dat in partial_pressure_data:    
+        residuals, weights = calculate_PP_difference(pp_dat, parameters)
         if np.any(np.isinf(residuals) | np.isnan(residuals)):
             # NaN or infinity are assumed calculation failures. If we are
             # calculating log-probability, just bail out and return -infinity.
@@ -330,7 +352,7 @@ def calculate_fusion_error(fusion_data: Sequence[Dict[str, Any]],
         return -np.inf
     return np.sum(likelihood)
 
-class FusionResidual(ResidualFunction):
+class PartialPressurResidual(ResidualFunction):
     def __init__(
         self,
         database: Database,
@@ -361,16 +383,16 @@ class FusionResidual(ResidualFunction):
 
 ###JORGE IS ADDING LINES HERE
         parameters = dict(zip(symbols_to_fit, [0]*len(symbols_to_fit)))
-        self.fusion_data = get_fusion_data(database, comps, phases, datasets, model_dict, parameters, data_weight_dict=self.weight)
+        self.partial_pressure_data = get_partial_pressure_data(database, comps, phases, datasets, model_dict, parameters, data_weight_dict=self.weight)
 ############################################        
 
     def get_residuals(self, parameters: npt.ArrayLike) -> Tuple[List[float], List[float]]:
-        residuals, weights =calculate_fusion_residuals(self.fusion_data, parameters)
+        residuals, weights =calculate_PP_difference(self.partial_pressure_data, parameters)
         return residuals, weights
 
     def get_likelihood(self, parameters: npt.NDArray) -> float:
-        likelihood = calculate_fusion_error(self.fusion_data, parameters, data_weight=self.weight)
+        likelihood = calculate_PP_probability(self.partial_pressure_data, parameters, data_weight=self.weight)
         return likelihood
 
 
-residual_function_registry.register(FusionResidual)
+#residual_function_registry.register(PartialPressurResidual)
