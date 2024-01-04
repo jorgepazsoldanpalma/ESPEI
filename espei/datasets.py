@@ -111,7 +111,7 @@ def check_dataset(dataset: Dataset):
         comp_conditions = {k: v for k, v in conditions.items() if k.startswith('X_')}
     if is_equilibrium and is_equilib_pseudo[-1]=='COMP':
         components=[def_comp for def_comp in dataset['defined_components'].keys()]  
-        comp_conditions = {k: v for k, v in conditions.items() if k.startswith('X_')}        
+        comp_conditions = {k: v for k, v in conditions.items() if k.startswith('X_')}
     if is_activity and activity_components[1]!='COMP':
         ref_state = dataset['reference_state']
     if is_single_phase and 'COMP' in is_single_phase_output:
@@ -134,7 +134,7 @@ def check_dataset(dataset: Dataset):
         else:
             comp_conditions = {k: v for k, v in conditions.items() if k.startswith('X_')}
     elif is_activity and activity_components[1]=='COMP':
-        components=[def_comp for def_comp in dataset['defined_components'].keys()]   
+        components=[def_comp for def_comp in dataset['defined_components'].keys()] 
     elif is_sitefraction:
         conditions = dataset['conditions']
     elif is_equilibrium:
@@ -286,7 +286,6 @@ def clean_dataset(dataset: Dataset) -> Dataset:
 
     """
     dataset["conditions"] = {k: recursive_map(float, v) for k, v in dataset["conditions"].items()}
-
     solver = dataset.get("solver")
     if solver is not None:
         solver["sublattice_site_ratios"] = recursive_map(float, solver["sublattice_site_ratios"])

@@ -84,7 +84,6 @@ def get_activity_data(dbf: Database, comps: Sequence[str],
     desired_data = datasets.search(
         (tinydb.where('output').test(lambda x: 'ACR' in x)) &
         (tinydb.where('components').test(lambda x: set(x).issubset(comps))))
-
     activity_data=[] 
     stoich_ref=[]
     for data in desired_data:
@@ -117,7 +116,7 @@ def get_activity_data(dbf: Database, comps: Sequence[str],
         Chem_Pot_ref_potential={key:value for key,value in ref_conditions.items() if not key.startswith('X_')}
         Chem_Pot_ref_potential.setdefault('N', 1.0)
         ref_potential=OrderedDict([(getattr(v, key), unpack_condition(Chem_Pot_ref_potential[key])) for key in sorted(Chem_Pot_ref_potential.keys()) if not key.startswith('X_')])
-        
+       
   
         
 ####The reason Jorge added len_components is in case multiple different defined compositions are provided###
@@ -129,13 +128,16 @@ def get_activity_data(dbf: Database, comps: Sequence[str],
             reference_stoich=defined_components[ref_state]
             converted_ref_compositions=calculating_pseudo_line(data_comps,defined_components,ref_compositions)
             defined_unary_components=[key.split('_')[1] for key,val in converted_ref_compositions.items() if val>0.0]
-            
+
             depend_unary_copmponents=sorted(defined_unary_components)[:-1]     
             ref_comp_conds = OrderedDict([(v.X(key[2:]), unpack_condition(converted_ref_compositions[key])) \
             for key,val in sorted(converted_ref_compositions.items()) \
             if key.startswith('X_') and val!=0.0 and key[2:] in depend_unary_copmponents])
             def_comp_species=sorted(unpack_components(dbf, defined_unary_components), key=str)
-            def_comp_data_phases = filter_phases(dbf, def_comp_species, candidate_phases=phases)
+            if data['reference_state']['phases'] is None:
+                def_comp_data_phases = filter_phases(dbf, def_comp_species, candidate_phases=phases)
+            else:
+                def_comp_data_phases=data['reference_state']['phases']                
             def_comp_models = instantiate_models(dbf, def_comp_species, def_comp_data_phases, model=model, parameters=parameters)
             ref_chem_pot_reg=ChemPotentialRegion(Chem_Pot_ref_potential,def_comp_species
             ,def_comp_data_phases,def_comp_models)
@@ -321,6 +323,8 @@ def calc_difference_activity(activity_data: Sequence[Dict[str, Any]],
         Ref_multi_eqdata = _equilibrium(ref_phase_records, ref_cond_dict, ref_grid)
         Ref_Chem_Potentials=Ref_multi_eqdata.MU.squeeze()
         Ref_Chem_components=Ref_multi_eqdata.coords['component']
+#        print('These are the chem potentials and the components',
+#        Ref_Chem_Potentials,Ref_Chem_components,ref_cond_dict,Ref_multi_eqdata.Phase.squeeze())
         if defined_components=='COMP':
             Ref_Chem_Potential=sum([reference_stoichiometric[comp]*mu for comp,mu in zip(Ref_Chem_components,Ref_Chem_Potentials)])
         else:
@@ -347,10 +351,13 @@ def calc_difference_activity(activity_data: Sequence[Dict[str, Any]],
             multi_eqdata =_equilibrium(phase_records, 
             cond_dict, grid)
             Chem_Pot=multi_eqdata.MU.squeeze()
+            Chem_ele=multi_eqdata.component
             if defined_components=='COMP':
                 Chem_components=list(sorted([i for i in reference_stoichiometric.keys()]))
+                true_Chem_Pot=[Chem_Pot[count] for count,i in enumerate(Chem_ele) if i in Chem_components]
                 Chem_Potential=[sum([reference_stoichiometric[comp]*mu 
-                for comp,mu in zip(Chem_components,Chem_Pot)])]
+                for comp,mu in zip(Chem_components,true_Chem_Pot)])]
+#                print('I am one sad panda',Chem_Potential,Chem_components)
             else:
                 Chem_components=multi_eqdata.coords['component']    
                 Chem_Potential=[mu for chem_pot in Chem_Pot for comp,mu in zip(Chem_components,chem_pot) if comp==defined_components]
@@ -606,7 +613,6 @@ class ActivityResidual(ResidualFunction):
         if symbols_to_fit is None:
             symbols_to_fit = database_symbols_to_fit(database)
         self._symbols_to_fit = symbols_to_fit
-
 
 #        self._activity_likelihood_kwargs = {
 #            "dbf": database, "comps": comps, "phases": phases, "datasets": datasets,

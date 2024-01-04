@@ -259,6 +259,7 @@ def estimate_hyperplane(phase_region: PhaseRegion, parameters: np.ndarray, appro
             # Note that we consider all phases in the system, not just ones in this tie region
             str_statevar_dict = OrderedDict([(str(key), cond_dict[key]) for key in sorted(phase_region.potential_conds.keys(), key=str)])
             grid = calculate_(species, phases, str_statevar_dict, models, phase_records, pdens=50, fake_points=True)
+#            print('This is ')
             multi_eqdata = _equilibrium(phase_records, cond_dict, grid)
             target_hyperplane_phases.append(multi_eqdata.Phase.squeeze())
             # Does there exist only a single phase in the result with zero internal degrees of freedom?
@@ -267,6 +268,8 @@ def estimate_hyperplane(phase_region: PhaseRegion, parameters: np.ndarray, appro
             Y_values = multi_eqdata.Y.squeeze()
             no_internal_dof = np.all((np.isclose(Y_values, 1.)) | np.isnan(Y_values))
             MU_values = multi_eqdata.MU.squeeze()
+#            print('CONDITIONS BRO',str_statevar_dict,MU_values)
+#            print('These are the parameters',multi_eqdata.Phase.squeeze())
             if (num_phases == 1) and no_internal_dof:
                 target_hyperplane_chempots.append(np.full_like(MU_values, np.nan))
             else:
@@ -330,7 +333,6 @@ def driving_force_to_hyperplane(target_hyperplane_chempots: np.ndarray,
             _log.debug('Calculation failure: constrained equilibrium not converged for %s, conditions: %s, parameters %s', current_phase, cond_dict, parameters)
             return np.inf
         driving_force = float(np.dot(target_hyperplane_chempots, vertex.composition) - float(energy))
-#        print(driving_force,str_statevar_dict)
     return driving_force
 
 
@@ -382,6 +384,7 @@ def calculate_zpf_driving_forces(zpf_data: Sequence[Dict[str, Any]],
             # 1. Calculate the average multiphase hyperplane
             eq_str = phase_region.eq_str()
             target_hyperplane = estimate_hyperplane(phase_region, parameters, approximate_equilibrium=approximate_equilibrium)
+#            print('THIS IS TARGET HYPERPLANE',target_hyperplane)
             if np.any(np.isnan(target_hyperplane)):
                 _log.debug('NaN target hyperplane. Equilibria: (%s), driving force: 0.0, reference: %s.', eq_str, dataset_ref)
                 data_driving_forces.extend([0]*len(phase_region.vertices))
@@ -425,10 +428,10 @@ def calculate_zpf_error(zpf_data: Sequence[Dict[str, Any]],
     """
     if len(zpf_data) == 0:
         return 0.0
+        
     driving_forces, weights = calculate_zpf_driving_forces(zpf_data, parameters, approximate_equilibrium, short_circuit=True)
-#    print('calculate_zpf_error',len(driving_forces),len(weights))
-#    print('weights',np.concatenate(weights))
-#    print('driving force',np.concatenate(driving_forces))
+
+
     # Driving forces and weights are 2D ragged arrays with the shape (len(zpf_data), len(zpf_data['values']))
     driving_forces = np.concatenate(driving_forces)
     weights = np.concatenate(weights)
@@ -465,7 +468,7 @@ class ZPFResidual(ResidualFunction):
         # okay if parameters are initialized to zero, we only need the symbol names
         parameters = dict(zip(symbols_to_fit, [0]*len(symbols_to_fit)))
         self.zpf_data = get_zpf_data(database, comps, phases, datasets, parameters, model_dict)
-
+#        print('FUCK ME PLEASE',get_zpf_data(database, comps, phases, datasets, parameters, model_dict))
     def get_residuals(self, parameters: ArrayLike) -> Tuple[List[float], List[float]]:
         driving_forces, weights = calculate_zpf_driving_forces(self.zpf_data, parameters, short_circuit=True)
         # Driving forces and weights are 2D ragged arrays with the shape (len(zpf_data), len(zpf_data['values']))

@@ -260,7 +260,6 @@ def get_equilibrium_thermochemical_data(dbf: Database, comps: Sequence[str],
         (where('components').test(lambda x: set(x).issubset(comps))) &
         (where('phases').test(lambda x: set(x).issubset(set(phases))))
     )
-
     eq_thermochemical_data = []  # 1:1 correspondence with each dataset
     for data in desired_data:
         pseudo_confirmation=data['output'].split('_')
