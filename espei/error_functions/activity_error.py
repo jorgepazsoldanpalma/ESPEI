@@ -357,7 +357,6 @@ def calc_difference_activity(activity_data: Sequence[Dict[str, Any]],
                 true_Chem_Pot=[Chem_Pot[count] for count,i in enumerate(Chem_ele) if i in Chem_components]
                 Chem_Potential=[sum([reference_stoichiometric[comp]*mu 
                 for comp,mu in zip(Chem_components,true_Chem_Pot)])]
-#                print('I am one sad panda',Chem_Potential,Chem_components)
             else:
                 Chem_components=multi_eqdata.coords['component']    
                 Chem_Potential=[mu for chem_pot in Chem_Pot for comp,mu in zip(Chem_components,chem_pot) if comp==defined_components]
