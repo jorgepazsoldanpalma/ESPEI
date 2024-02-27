@@ -305,7 +305,7 @@ def calculate_PP_difference(partial_pressure_data: Sequence[Dict[str, Any]],
 
         else:
             for mod in gas_models.values():
-                mod.shift_thermochemical_gas_species(reference_state, dbf,output=def_comp[1])    
+                mod.shift_thermochemical_gas_species(reference_state, dbf,output=output[1])    
     
     
     
