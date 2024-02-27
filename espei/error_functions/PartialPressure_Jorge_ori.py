@@ -132,16 +132,33 @@ def get_partial_pressure_data(dbf: Database, comps: Sequence[str],
 
         if def_comp[1]=='COMP':
             for mod in gas_models.values():
-#                mod.shift_partial_pressure(reference_state, dbf)
+                mod.shift_partial_pressure(reference_state, dbf)
                 gas_conditions['T']=ref_cond['conditions']['T']
                 gas_conditions['P']=ref_cond['conditions']['P']
                 property_='GMR'
         else:
             for mod in gas_models.values():
-#                mod.shift_thermochemical_gas_species(reference_state, dbf,output=def_comp[1])
+                mod.shift_thermochemical_gas_species(reference_state, dbf,output=def_comp[1])
                 gas_conditions['T']=list(set([val['T'] for T,val in ref_cond['conditions'].items()]))
                 gas_conditions['P']=list(set([val['P'] for T,val in ref_cond['conditions'].items()]))       
                 property_=def_comp[1]
+        phase_recs = build_phase_records(dbf
+        , species
+        , data_phases
+        , {v.N, v.P, v.T}
+        , models
+        , parameters=parameters
+        , build_gradients=True
+        , build_hessians=True)
+ 
+        gas_phase_recs= build_phase_records(dbf
+        , filter_gas_species
+        , gas_phase
+        , {v.N, v.P, v.T}
+        , gas_models
+        , parameters=parameters
+        , build_gradients=True
+        , build_hessians=True)
         
 
         potential_conds={key:val for key,val in conditions.items() if key=="T" or key=="P"}
@@ -170,14 +187,16 @@ def get_partial_pressure_data(dbf: Database, comps: Sequence[str],
         'conditions':gas_potential_conds,
         'references':data_ref,
         'database':dbf,
+        'gas_model':gas_models,
+        'model':models,
         'gas_spec_dict':gas_species,
         'gas_species':filter_gas_species,
         'species':species,
         'output':def_comp,
         'data_phases':data_phases,
         'gas_phase':gas_phase,
-        'models':models,
-        'gas_models':gas_models,
+        'phase_records': phase_recs,
+        'gas_phase_records': gas_phase_recs,        
         'reference_state':reference_state,
         'component_dict': comp_conds,
         'gas_composition':gas_comp_conds,
@@ -258,10 +277,12 @@ def calculate_PP_difference(partial_pressure_data: Sequence[Dict[str, Any]],
     dbf=partial_pressure_data['database']
     potential_conds=partial_pressure_data['conditions']
     temp_list=potential_conds['T']
-    gas_models=partial_pressure_data['gas_models']
-    models=partial_pressure_data['models']
-#    update_phase_record_parameters(phase_recs, parameters)
-#    update_phase_record_parameters(gas_phase_recs, parameters)
+    gas_models=partial_pressure_data['gas_model']
+    models=partial_pressure_data['model']
+    phase_records=partial_pressure_data['phase_records']
+    gas_phase_records=partial_pressure_data['gas_phase_records']
+    update_phase_record_parameters(phase_records, parameters)
+    update_phase_record_parameters(gas_phase_records, parameters)
     samples=partial_pressure_data['samples']
     param_keys=partial_pressure_data['param_variables']
     params_dict = OrderedDict(zip(map(str, param_keys), parameters))
@@ -271,8 +292,6 @@ def calculate_PP_difference(partial_pressure_data: Sequence[Dict[str, Any]],
     data_phases=partial_pressure_data['data_phases']
     gas_phase=partial_pressure_data['gas_phase']
     gas_spec=partial_pressure_data['gas_spec_dict']
-    reference_state=partial_pressure_data['reference_state']
-    
     
     if defined_comp=='NONE':
         comp_cond=OrderedDict([(v.X(key[2:]), unpack_condition(data_comps[key])) for key,val in sorted(data_comps.items()) if key.startswith('X_')]) 
@@ -298,49 +317,20 @@ def calculate_PP_difference(partial_pressure_data: Sequence[Dict[str, Any]],
         for key in sorted(potential_conds.keys())])   
         ref_cond_dict= OrderedDict(**state_var, **gas_comps) 
     
-        if output[1]=='COMP':
-            reference_state['conditions']['T']=temp_list[temp]
-            for mod in gas_models.values():
-                mod.shift_partial_pressure(reference_state, dbf)
-
-        else:
-            for mod in gas_models.values():
-                mod.shift_thermochemical_gas_species(reference_state, dbf,output=def_comp[1])    
-    
-    
-    
         cond_dict = OrderedDict(**state_var, **comp_cond)
-        phase_recs = build_phase_records(dbf
-        , species
-        , data_phases
-        , {v.N, v.P, v.T}
-        , models
-        , parameters=params_dict
-        , build_gradients=True
-        , build_hessians=True)
- 
-        gas_phase_recs= build_phase_records(dbf
-        , filter_gas_species
-        , gas_phase
-        , {v.N, v.P, v.T}
-        , gas_models
-        , parameters=params_dict
-        , build_gradients=True
-        , build_hessians=True)
-        update_phase_record_parameters(phase_recs, parameters)
-        update_phase_record_parameters(gas_phase_recs, parameters)        
+    
         grid=calculate_(species
         ,data_phases,potential_conds,models
-        ,phase_recs, pdens=50, fake_points=True)  
+        ,phase_records, pdens=50, fake_points=True)  
         
         ref_grid=calculate_(filter_gas_species
         ,gas_phase,potential_conds,gas_models
-        ,gas_phase_recs, pdens=50, fake_points=True)  
+        ,gas_phase_records, pdens=50, fake_points=True)  
 
 
-        multi_eqdata =_equilibrium(phase_recs, 
+        multi_eqdata =_equilibrium(phase_records, 
             cond_dict, grid)  
-        ref_multi_eqdata =_equilibrium(gas_phase_recs, 
+        ref_multi_eqdata =_equilibrium(gas_phase_records, 
             ref_cond_dict, ref_grid)
         propdata = _eqcalculate(dbf, filter_gas_species, gas_phase, ref_cond_dict, property_, data=ref_multi_eqdata, per_phase=False, callables=None, parameters=params_dict, model=gas_models)
         ref_gas_species_mu=getattr(propdata,property_).flatten().tolist()

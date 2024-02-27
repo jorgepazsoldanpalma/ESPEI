@@ -399,7 +399,7 @@ def calculate_zpf_driving_forces(zpf_data: Sequence[Dict[str, Any]],
                     _log.debug('Equilibria: (%s), current phase: %s, hyperplane: %s, driving force: %s, reference: %s. Short circuiting.', eq_str, vertex.phase_name, target_hyperplane, driving_force, dataset_ref)
                     return [[np.inf]], [[np.inf]]
 ###06-28-23 Jorge added the following line below in order to find driving forces normalized to RT
-                driving_force=driving_force/(float(v.R)*phase_region.potential_conds[v.T])
+#                driving_force=driving_force/(float(v.R)*phase_region.potential_conds[v.T])
 ##########
                 data_driving_forces.append(driving_force)
                 data_weights.append(weight)
@@ -437,7 +437,7 @@ def calculate_zpf_error(zpf_data: Sequence[Dict[str, Any]],
     weights = np.concatenate(weights)
     if np.any(np.logical_or(np.isinf(driving_forces), np.isnan(driving_forces))):
         return -np.inf
-    log_probabilites = norm.logpdf(driving_forces, loc=0, scale=0.1/data_weight/weights)
+    log_probabilites = norm.logpdf(driving_forces, loc=0, scale=1000/data_weight/weights)
     _log.debug('Data weight: %s, driving forces: %s, weights: %s, probabilities: %s', data_weight, driving_forces, weights, log_probabilites)
     return np.sum(log_probabilites)
 

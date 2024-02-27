@@ -252,6 +252,7 @@ def get_thermochemical_data(dbf, comps, phases, datasets, model=None, weight_dic
                     COMP_BIN=[i['defined_components'] for i in desired_data]
                     prop=prop.split('_')[0]
                     prop=prop[:-1] if prop.endswith('R') else prop
+                    print('This is teh compbin and refsta',COMP_BIN[0],'THIS IS WHERE IT SEPARATES',ref_sta[0])
                     mod.shift_reference_state_defined_components(COMP_BIN[0],ref_sta[0], dbf, output=(prop,))
                     output=prop+'R'
                 elif 'COMP' in prop and 'R' not in prop:
@@ -297,6 +298,7 @@ def compute_fixed_configuration_property_differences(calc_data: FixedConfigurati
                             calc_data['str_statevar_dict'], calc_data['model'],
                             phase_records, output=output, broadcast=False,
                             points=calc_data['calculate_dict']['points'])[output]
+    print('This is compute the property differences',results,sample_values)
     differences = results - sample_values
     return differences
 
