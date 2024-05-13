@@ -249,7 +249,7 @@ def calculate_activity_error(dbf, comps, phases, datasets, parameters=None, phas
 
 
     """
-    residuals, weights = calculate_activity_residuals(dbf, comps, phases, datasets, parameters=None, phase_models=None, callables=None, data_weight=1.0)
+    residuals, weights = calculate_activity_residuals(dbf, comps, phases, datasets, parameters=parameters, phase_models=phase_models, callables=callables, data_weight=data_weight)
     likelihood = np.sum(norm(0, scale=weights).logpdf(residuals))
     if np.isnan(likelihood):
         # TODO: revisit this case and evaluate whether it is resonable for NaN
@@ -277,7 +277,7 @@ class ActivityResidual(ResidualFunction):
         symbols_to_fit: Optional[List[SymbolName]] = None,
         weight: Optional[Dict[str, float]] = None,
         ):
-        super().__init__(database, datasets, phase_models, symbols_to_fit)
+        super().__init__(database, datasets, phase_models, symbols_to_fit, weight)
 
         if weight is not None:
             self.weight = weight.get("ACR", 1.0)
