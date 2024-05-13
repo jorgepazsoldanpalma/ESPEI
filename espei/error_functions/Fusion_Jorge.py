@@ -289,7 +289,7 @@ def calculate_fusion_residuals(fusion_data: Sequence[Dict[str, Any]],
     ref_values=getattr(ref_propdata, therm_property).flatten().tolist()[0]
     values=getattr(propdata, therm_property).flatten().tolist()
     values=[val-ref_values for val in values]
-    res=np.array(samples).flatten()[0]-values
+    res=np.array(samples).flatten()-values
 
     residuals.append(res)
 

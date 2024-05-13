@@ -105,7 +105,6 @@ def build_eqcomppropdata(data: tinydb.database.Document,
             ,def_components,def_components_cond) 
         def_comp_dat_file.popitem()
         lst_def_component_comps.append(def_comp_dat_file)
-    
     if len(lst_def_component_comps)>1:
         keys_def_component_comps=list(set([def_comp for comps in lst_def_component_comps for def_comp in comps.keys()]))
         first_def_comp=lst_def_component_comps[0]
@@ -322,9 +321,7 @@ def calc_prop_differences(eqpropdata: EqPropData,
         propdata = _eqcalculate(dbf, species, phases, cond_dict, output, data=multi_eqdata, per_phase=False, callables=None, parameters=params_dict, model=models)
         if 'vertex' in propdata.data_vars[output][0]:
             raise ValueError(f"Property {output} cannot be used to calculate equilibrium thermochemical error because each phase has a unique value for this property.")
-
         vals = getattr(propdata, output).flatten().tolist()
-
         calculated_data.extend(vals)
 
     calculated_data = np.array(calculated_data, dtype=np.float_)
