@@ -295,7 +295,7 @@ def compute_fixed_configuration_property_differences(calc_data: FixedConfigurati
     results = calculate_(calc_data['species'], [phase_name],
                             calc_data['str_statevar_dict'], calc_data['model'],
                             phase_records, output=output, broadcast=False,
-                            points=calc_data['calculate_dict']['points'])[output]
+                            points=calc_data['calculate_dict']['points'],pdens=75)[output]
     differences = results - sample_values
     return differences
 
