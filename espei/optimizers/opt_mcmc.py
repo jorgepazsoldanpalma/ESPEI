@@ -243,7 +243,9 @@ class EmceeOptimizer(OptimizerBase):
             # TODO: check that the shape is valid with the existing parameters
         else:
             chains = self.initialize_new_chains(initial_guess, chains_per_parameter, chain_std_deviation, deterministic)
-        sampler = emcee.EnsembleSampler(chains.shape[0], initial_guess.size, self.predict, kwargs=ctx, pool=self.scheduler)
+        sampler = emcee.EnsembleSampler(chains.shape[0], initial_guess.size, self.predict, moves=[
+        (emcee.moves.DEMove(), 0.8),
+        (emcee.moves.DESnookerMove(), 0.2),], kwargs=ctx, pool=self.scheduler)
         if deterministic:
             from espei.rstate import numpy_rstate
             sampler.random_state = numpy_rstate
