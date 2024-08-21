@@ -251,6 +251,7 @@ def estimate_hyperplane(phase_region: PhaseRegion, parameters: np.ndarray, appro
         phase_records = vertex.phase_records
         update_phase_record_parameters(phase_records, parameters)
         cond_dict = {**vertex.comp_conds, **phase_region.potential_conds}
+        print(vertex.comp_conds,cond_dict)
         if vertex.has_missing_comp_cond:
             # This composition is unknown -- it doesn't contribute to hyperplane estimation
             pass
@@ -258,22 +259,25 @@ def estimate_hyperplane(phase_region: PhaseRegion, parameters: np.ndarray, appro
             # Extract chemical potential hyperplane from multi-phase calculation
             # Note that we consider all phases in the system, not just ones in this tie region
             str_statevar_dict = OrderedDict([(str(key), cond_dict[key]) for key in sorted(phase_region.potential_conds.keys(), key=str)])
-            grid = calculate_(species, phases, str_statevar_dict, models, phase_records, pdens=50, fake_points=True)
-#            print('This is ')
-            multi_eqdata = _equilibrium(phase_records, cond_dict, grid)
-            target_hyperplane_phases.append(multi_eqdata.Phase.squeeze())
+            grid = calculate_(species, phases, str_statevar_dict, models, phase_records, pdens=150, fake_points=True)
+            try:
+                multi_eqdata = _equilibrium(phase_records, cond_dict, grid)
+                MU_values = multi_eqdata.MU.squeeze()
+                target_hyperplane_chempots.append(MU_values)
+            except ValueError:
+                pure_els = phase_records[phases[0]].nonvacant_pure_elements
+                target_hyperplane_chempots.append(np.full_like(pure_els, np.nan))
+                continue
             # Does there exist only a single phase in the result with zero internal degrees of freedom?
             # We should exclude those chemical potentials from the average because they are meaningless.
-            num_phases = np.sum(multi_eqdata.Phase.squeeze() != '')
-            Y_values = multi_eqdata.Y.squeeze()
-            no_internal_dof = np.all((np.isclose(Y_values, 1.)) | np.isnan(Y_values))
-            MU_values = multi_eqdata.MU.squeeze()
-#            print('CONDITIONS BRO',str_statevar_dict,MU_values)
-#            print('These are the parameters',multi_eqdata.Phase.squeeze())
-            if (num_phases == 1) and no_internal_dof:
-                target_hyperplane_chempots.append(np.full_like(MU_values, np.nan))
-            else:
-                target_hyperplane_chempots.append(MU_values)
+#            num_phases = np.sum(multi_eqdata.Phase.squeeze() != '')
+#            Y_values = multi_eqdata.Y.squeeze()
+#            no_internal_dof = np.all((np.isclose(Y_values, 1.)) | np.isnan(Y_values))
+#            MU_values = multi_eqdata.MU.squeeze()
+#            if (num_phases == 1) and no_internal_dof:
+#                target_hyperplane_chempots.append(np.full_like(MU_values, np.nan))
+#            else:
+#                target_hyperplane_chempots.append(MU_values)
     target_hyperplane_mean_chempots = np.nanmean(target_hyperplane_chempots, axis=0, dtype=np.float_)
     return target_hyperplane_mean_chempots
 
