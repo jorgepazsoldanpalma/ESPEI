@@ -265,7 +265,7 @@ def estimate_hyperplane(phase_region: PhaseRegion, parameters: np.ndarray, appro
                 MU_values = multi_eqdata.MU.squeeze()
                 target_hyperplane_chempots.append(MU_values)
             except IndexError:
-                pure_els = phase_records[phases[0]].nonvacant_pure_elements
+                pure_els = phase_records[phases[0]].nonvacant_elements
                 target_hyperplane_chempots.append(np.full_like(pure_els, np.nan,dtype=np.double))
                 continue
             # Does there exist only a single phase in the result with zero internal degrees of freedom?
