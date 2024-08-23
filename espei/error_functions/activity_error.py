@@ -348,10 +348,16 @@ def calc_difference_activity(activity_data: Sequence[Dict[str, Any]],
             comp_cond=OrderedDict([(v.X(key[2:]), unpack_condition(cond[key])) for key,val in sorted(cond.items()) if key.startswith('X_')
             and key in dep_comp])
             cond_dict = OrderedDict(**dataset_state_var, **comp_cond)
-            multi_eqdata =_equilibrium(phase_records, 
-            cond_dict, grid)
-            Chem_Pot=multi_eqdata.MU.squeeze()
-            Chem_ele=multi_eqdata.component
+            try:
+                multi_eqdata =_equilibrium(phase_records, 
+                cond_dict, grid)
+                Chem_Pot=multi_eqdata.MU.squeeze()
+                Chem_ele=multi_eqdata.component
+            except IndexError:
+                Components = phase_records[dataset_phases[0]].nonvacant_elements
+                Chem_Pot=np.full_like(Components, np.nan)
+                continue       
+                
             if defined_components=='COMP':
                 Chem_components=list(sorted([i for i in reference_stoichiometric.keys()]))
                 true_Chem_Pot=[Chem_Pot[count] for count,i in enumerate(Chem_ele) if i in Chem_components]

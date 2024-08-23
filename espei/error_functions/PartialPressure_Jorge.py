@@ -327,16 +327,20 @@ def calculate_PP_difference(partial_pressure_data: Sequence[Dict[str, Any]],
         ,gas_phase,potential_conds,gas_models
         ,gas_phase_records, pdens=50, fake_points=True)  
 
+        try:
+            multi_eqdata = _equilibrium(phase_records, cond_dict, grid)
+            Chemical_Potentials=multi_eqdata.MU.squeeze()
+            Components=multi_eqdata.coords['component']
+        except IndexError:
+            Components = phase_records[data_phases[0]].nonvacant_elements
+            Chemical_Potentials=np.full_like(Components, np.nan)
+            continue            
 
-        multi_eqdata =_equilibrium(phase_records, 
-            cond_dict, grid)  
         ref_multi_eqdata =_equilibrium(gas_phase_records, 
             ref_cond_dict, ref_grid)
         propdata = _eqcalculate(dbf, filter_gas_species, gas_phase, ref_cond_dict, property_, data=ref_multi_eqdata, per_phase=False, callables=None, parameters=params_dict, model=gas_models)
         ref_gas_species_mu=getattr(propdata,property_).flatten().tolist()
         if output[1]=="COMP":
-            Chemical_Potentials=multi_eqdata.MU.squeeze()
-            Components=multi_eqdata.coords['component']
             Dict_chem_pot={ele:mu for ele,mu in zip(Components,Chemical_Potentials)}
             num_of_specie=sum([stoi for j,i in gas_spec.items() for ele,stoi in i.items()])
             Chem_pot_spec=sum([Dict_chem_pot[ele]*stoi/num_of_specie for j,i in gas_spec.items() for ele,stoi in i.items()])
@@ -350,12 +354,10 @@ def calculate_PP_difference(partial_pressure_data: Sequence[Dict[str, Any]],
             gas_prop=getattr(propdata,property_).flatten()
             pp_spec=np.array(gas_prop-system_prop)
             values.append(pp_spec)            
-#        pp_spec=
         
         
     potential_conds['T']=temp_list
 
-#    print('Now I am checkiong for real',samples,test)
     if output[1]=="COMP":
        
         samples=np.array([np.log(i) for i in samples])
@@ -363,9 +365,7 @@ def calculate_PP_difference(partial_pressure_data: Sequence[Dict[str, Any]],
     else:
         pass
     res=np.array(samples)-values
-#    print('These are results',res,np.array(samples),values)
-    
-#    samples=np.array(samples).flatten()
+
 
 
     residuals.append(res.flatten())

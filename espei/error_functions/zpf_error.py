@@ -251,7 +251,7 @@ def estimate_hyperplane(phase_region: PhaseRegion, parameters: np.ndarray, appro
         phase_records = vertex.phase_records
         update_phase_record_parameters(phase_records, parameters)
         cond_dict = {**vertex.comp_conds, **phase_region.potential_conds}
-        print(vertex.comp_conds,cond_dict)
+#        print(vertex.comp_conds,cond_dict)
         if vertex.has_missing_comp_cond:
             # This composition is unknown -- it doesn't contribute to hyperplane estimation
             pass
@@ -264,9 +264,9 @@ def estimate_hyperplane(phase_region: PhaseRegion, parameters: np.ndarray, appro
                 multi_eqdata = _equilibrium(phase_records, cond_dict, grid)
                 MU_values = multi_eqdata.MU.squeeze()
                 target_hyperplane_chempots.append(MU_values)
-            except ValueError:
+            except IndexError:
                 pure_els = phase_records[phases[0]].nonvacant_pure_elements
-                target_hyperplane_chempots.append(np.full_like(pure_els, np.nan))
+                target_hyperplane_chempots.append(np.full_like(pure_els, np.nan,dtype=np.double))
                 continue
             # Does there exist only a single phase in the result with zero internal degrees of freedom?
             # We should exclude those chemical potentials from the average because they are meaningless.
