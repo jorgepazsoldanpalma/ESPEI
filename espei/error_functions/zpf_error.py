@@ -332,7 +332,10 @@ def driving_force_to_hyperplane(target_hyperplane_chempots: np.ndarray,
         # Extract energies from single-phase calculations
         grid = calculate_(species, [current_phase], str_statevar_dict, models, phase_records, points=phase_points, pdens=50, fake_points=True)
         # TODO: consider enabling approximate for this?
-        converged, energy = constrained_equilibrium(phase_records, cond_dict, grid)
+        try:
+            converged, energy = constrained_equilibrium(phase_records, cond_dict, grid)
+        except IndexError:
+            converged = False
         if not converged:
             _log.debug('Calculation failure: constrained equilibrium not converged for %s, conditions: %s, parameters %s', current_phase, cond_dict, parameters)
             return np.inf
