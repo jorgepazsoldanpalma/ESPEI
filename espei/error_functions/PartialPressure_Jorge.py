@@ -367,7 +367,6 @@ def calculate_PP_difference(partial_pressure_data: Sequence[Dict[str, Any]],
     
 #    samples=np.array(samples).flatten()
 
-
     residuals.append(res.flatten())
 
     weights_ = (data_weight).flatten()
@@ -397,9 +396,9 @@ def calculate_PP_probability(partial_pressure_data: Sequence[Dict[str, Any]],
 
         differences.append(residuals[0])
         wts.append(weights)     
-    
     differences = np.concatenate(differences, axis=0)
     weights = np.concatenate(wts, axis=0)
+    print('These are the weights in pp ESPEI',weights)
     likelihood = norm(loc=0.0, scale=weights).logpdf(differences)
     if np.isnan(likelihood).any():
 #        # TODO: revisit this case and evaluate whether it is resonable for NaN

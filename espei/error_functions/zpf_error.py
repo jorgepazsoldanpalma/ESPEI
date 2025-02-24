@@ -168,6 +168,7 @@ def get_zpf_data(dbf: Database, comps: Sequence[str], phases: Sequence[str], dat
         data_comps = list(set(data['components']).union({'VA'}))
         species = sorted(unpack_components(dbf, data_comps), key=str)
         data_phases = filter_phases(dbf, species, candidate_phases=phases)
+        data_phases=[i for i in data_phases if i!='GAS_IDEAL']
         models = instantiate_models(dbf, species, data_phases, model=model, parameters=parameters)
         # assumed N, P, T state variables
         phase_recs = build_phase_records(dbf, species, data_phases, {v.N, v.P, v.T}, models, parameters=parameters, build_gradients=True, build_hessians=True)
@@ -258,8 +259,7 @@ def estimate_hyperplane(phase_region: PhaseRegion, parameters: np.ndarray, appro
             # Extract chemical potential hyperplane from multi-phase calculation
             # Note that we consider all phases in the system, not just ones in this tie region
             str_statevar_dict = OrderedDict([(str(key), cond_dict[key]) for key in sorted(phase_region.potential_conds.keys(), key=str)])
-            grid = calculate_(species, phases, str_statevar_dict, models, phase_records, pdens=50, fake_points=True)
-#            print('This is ')
+            grid = calculate_(species, phases, str_statevar_dict, models, phase_records, pdens=2000, fake_points=True)
             multi_eqdata = _equilibrium(phase_records, cond_dict, grid)
             target_hyperplane_phases.append(multi_eqdata.Phase.squeeze())
             # Does there exist only a single phase in the result with zero internal degrees of freedom?
@@ -293,7 +293,7 @@ def driving_force_to_hyperplane(target_hyperplane_chempots: np.ndarray,
         # We don't have the phase composition here, so we estimate the driving force.
         # Can happen if one of the composition conditions is unknown or if the phase is
         # stoichiometric and the user did not specify a valid phase composition.
-        single_eqdata = calculate_(species, [current_phase], str_statevar_dict, models, phase_records, pdens=50)
+        single_eqdata = calculate_(species, [current_phase], str_statevar_dict, models, phase_records, pdens=500)
         df = np.multiply(target_hyperplane_chempots, single_eqdata.X).sum(axis=-1) - single_eqdata.GM
         driving_force = float(df.max())
     elif vertex.is_disordered:
@@ -324,7 +324,7 @@ def driving_force_to_hyperplane(target_hyperplane_chempots: np.ndarray,
         driving_force = float(np.squeeze(driving_force))
     else:
         # Extract energies from single-phase calculations
-        grid = calculate_(species, [current_phase], str_statevar_dict, models, phase_records, points=phase_points, pdens=50, fake_points=True)
+        grid = calculate_(species, [current_phase], str_statevar_dict, models, phase_records, points=phase_points, pdens=500, fake_points=True)
         # TODO: consider enabling approximate for this?
         converged, energy = constrained_equilibrium(phase_records, cond_dict, grid)
         if not converged:
