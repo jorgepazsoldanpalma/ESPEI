@@ -16,7 +16,6 @@ class ModelMetadata(BaseModel):
 class PhaseModelSpecification(BaseModel):
     components: List[ComponentName]
     phases: Dict[PhaseName, ModelMetadata]
-
     # TODO: update type of Model to ModelProtocol if/when available
     def get_model_dict(self) -> Dict[str, Type[Model]]:
         """
