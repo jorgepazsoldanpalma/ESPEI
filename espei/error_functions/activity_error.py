@@ -125,15 +125,19 @@ def get_activity_data(dbf: Database, comps: Sequence[str],
         if data_defined_components=='COMP':
             defined_components=data['defined_components']
             ref_state=data['reference_state']['reference_spec']
-            reference_stoich=defined_components[ref_state]
+            if ref_state in data_comps:
+                reference_stoich=ref_state
+            else:
+                reference_stoich=defined_components[ref_state]
             converted_ref_compositions=calculating_pseudo_line(data_comps,defined_components,ref_compositions)
             defined_unary_components=[key.split('_')[1] for key,val in converted_ref_compositions.items() if val>0.0]
-
+            
             depend_unary_copmponents=sorted(defined_unary_components)[:-1]     
             ref_comp_conds = OrderedDict([(v.X(key[2:]), unpack_condition(converted_ref_compositions[key])) \
             for key,val in sorted(converted_ref_compositions.items()) \
             if key.startswith('X_') and val!=0.0 and key[2:] in depend_unary_copmponents])
             def_comp_species=sorted(unpack_components(dbf, defined_unary_components), key=str)
+            
             if data['reference_state']['phases'] is None:
                 def_comp_data_phases = filter_phases(dbf, def_comp_species, candidate_phases=phases)
             else:
@@ -188,7 +192,9 @@ def get_activity_data(dbf: Database, comps: Sequence[str],
             
         data_ref=data['reference']
         
-        
+# For some reason the equilibrium_ function is giving the wrong energy for reference. Not sure why. The more concentrated compositions are correct. Could be dilute issue?
+#Nevertheless. Cannot figure out issue and therefore will return to using equilibrium function which will be slower but more accurate
+#Perhaps this issue should always be chosen for dilute references?
         data_dict={
         'weight':data.get('weight', 1.0),
         'defined_components':data_defined_components,
@@ -200,7 +206,9 @@ def get_activity_data(dbf: Database, comps: Sequence[str],
         'dataset_reference':data_ref,
         'list_con_dict': lst_def_component_comps,
         'ref_cond_dict':ref_cond_dict,
-        'samples':samples
+        'samples':samples,
+        'database':dbf,
+        'elements':data_comps
         }
         
         activity_data.append(data_dict)
@@ -317,16 +325,29 @@ def calc_difference_activity(activity_data: Sequence[Dict[str, Any]],
         ref_species=data['ref_Chem_Potential'].species
         ref_phases=data['ref_Chem_Potential'].phases
         ref_models=data['ref_Chem_Potential'].models
+        database_=data['database']
+        elements=data['elements']
         reference_stoichiometric=data['reference_stoich']
         ref_grid = calculate_(ref_species, ref_phases, ref_state_var
         , ref_models, ref_phase_records, pdens=50, fake_points=True)
-        Ref_multi_eqdata = _equilibrium(ref_phase_records, ref_cond_dict, ref_grid)
-        Ref_Chem_Potentials=Ref_multi_eqdata.MU.squeeze()
+        Ref_multi_eqdata = equilibrium(database_, elements, ref_phases, ref_cond_dict, verbose=False, calc_opts={'pdens': 500})
+################################################################### 04-29-26 ############################################################################################
+#As mentioned in the previous comments, I will be using equilibrium function for activity error calculations since there seems to be an issue for some reason
+#It will make the ESPEI calculations slower but more accurate.
+#This does not mean that we should not use shadowfunctions. just that we should be aware that they can be erroneous sometimes and should always double check
+#        Ref_multi_eqdata = _equilibrium(ref_phase_records, ref_cond_dict, ref_grid)
+######################################################################################################################################################################
+        Ref_Chem_Potentials=np.array(Ref_multi_eqdata.MU.squeeze())
         Ref_Chem_components=Ref_multi_eqdata.coords['component']
 #        print('These are the chem potentials and the components',
 #        Ref_Chem_Potentials,Ref_Chem_components,ref_cond_dict,Ref_multi_eqdata.Phase.squeeze())
-        if defined_components=='COMP':
+        if defined_components=='COMP' and type(reference_stoichiometric)==dict:
             Ref_Chem_Potential=sum([reference_stoichiometric[comp]*mu for comp,mu in zip(Ref_Chem_components,Ref_Chem_Potentials)])
+        elif defined_components=='COMP' and type(reference_stoichiometric)==str:
+            
+            Ref_Chem_Potential_=Ref_Chem_Potentials.tolist()
+            Ref_Chem_Potential=[mu for comp,mu in zip(Ref_Chem_components,Ref_Chem_Potential_) if comp==reference_stoichiometric]
+#Issue to be resolved here still is specifying what the reference is... first trying to run everything without an error 
         else:
             if Ref_Chem_Potentials.ndim==0:
                 Ref_Chem_Potentials=[Ref_Chem_Potentials.tolist()]
@@ -335,7 +356,7 @@ def calc_difference_activity(activity_data: Sequence[Dict[str, Any]],
             Ref_Chem_Potential=[mu for comp,mu in zip(Ref_Chem_components,Ref_Chem_Potentials) if comp==defined_components][0]
         grid=calculate_(dataset_species
         ,dataset_phases,dataset_state_var,dataset_models
-        ,phase_records, pdens=50, fake_points=True)
+        ,phase_records, pdens=2000, fake_points=True)
 
         dataset_state_var=OrderedDict([(getattr(v, key), unpack_condition(dataset_state_var[key])) for key in sorted(dataset_state_var.keys())])           
         calculated_data=[]
@@ -352,21 +373,23 @@ def calc_difference_activity(activity_data: Sequence[Dict[str, Any]],
             cond_dict, grid)
             Chem_Pot=multi_eqdata.MU.squeeze()
             Chem_ele=multi_eqdata.component
-            if defined_components=='COMP':
+            if defined_components=='COMP' and type(reference_stoichiometric)==dict:
                 Chem_components=list(sorted([i for i in reference_stoichiometric.keys()]))
                 true_Chem_Pot=[Chem_Pot[count] for count,i in enumerate(Chem_ele) if i in Chem_components]
                 Chem_Potential=[sum([reference_stoichiometric[comp]*mu 
                 for comp,mu in zip(Chem_components,true_Chem_Pot)])]
+            elif defined_components=='COMP' and type(reference_stoichiometric)==str:
+                Chem_components=multi_eqdata.coords['component']
+                Chem_Potential=[mu for comp,mu in zip(Chem_components,Chem_Pot) if comp==reference_stoichiometric]                
             else:
                 Chem_components=multi_eqdata.coords['component']    
                 Chem_Potential=[mu for chem_pot in Chem_Pot for comp,mu in zip(Chem_components,chem_pot) if comp==defined_components]
-            
-            activity= [(mu - Ref_Chem_Potential) for mu in Chem_Potential]
-            calculated_data.append(activity)   
+            print('This is the reference chem potential',Ref_Chem_Potential,'These are the chem potentials',Chem_Potential)
+            ln_activity= [(mu - Ref_Chem_Potential) for mu in Chem_Potential]
+            calculated_data.append(ln_activity)   
             
         calculated_data = np.array(calculated_data, dtype=np.float_)
         samples=np.array(samples,dtype=np.float)
-
 ####CHECK THIS AGAIN FOR ARRAY SHAPE THAT WILL BE IMPORTANT####
 #    assert calculated_data.shape == samples.shape, f"Calculated data shape {calculated_data.shape} does not match samples shape {samples.shape}"
 #    assert calculated_data.shape == weight.shape, f"Calculated data shape {calculated_data.shape} does not match weights shape {weights.shape}"
@@ -377,7 +400,7 @@ def calc_difference_activity(activity_data: Sequence[Dict[str, Any]],
         act_diff.append(differences)
         weights_.append(np.array(weight))
     return act_diff, weights_
-        
+# Should I completely delete this function? ->calculate_activity_residuals
 # TODO: roll this function into ActivityResidual
 def calculate_activity_residuals(dbf, comps, phases, datasets, parameters=None, phase_models=None, callables=None, data_weight=1.0) -> Tuple[List[float], List[float]]:
     """
@@ -504,7 +527,6 @@ def calculate_activity_residuals(dbf, comps, phases, datasets, parameters=None, 
         _log.debug('Data: %s, chemical potential difference: %s, reference: %s', dataset_activities, dataset_residuals, ds["reference"])
         residuals.extend(dataset_residuals)
         weights.extend(dataset_weights)
-        
     return residuals, weights
 
 
