@@ -338,11 +338,11 @@ def calc_difference_activity(activity_data: Sequence[Dict[str, Any]],
 #        Ref_multi_eqdata = _equilibrium(ref_phase_records, ref_cond_dict, ref_grid)
 ######################################################################################################################################################################
         Ref_Chem_Potentials=np.array(Ref_multi_eqdata.MU.squeeze())
-        Ref_Chem_components=Ref_multi_eqdata.coords['component']
-#        print('These are the chem potentials and the components',
+        Ref_Chem_components=Ref_multi_eqdata.coords['component'].values.squeeze()
+
 #        Ref_Chem_Potentials,Ref_Chem_components,ref_cond_dict,Ref_multi_eqdata.Phase.squeeze())
         if defined_components=='COMP' and type(reference_stoichiometric)==dict:
-            Ref_Chem_Potential=sum([reference_stoichiometric[comp]*mu for comp,mu in zip(Ref_Chem_components,Ref_Chem_Potentials)])
+            Ref_Chem_Potential=sum([reference_stoichiometric[comp]*mu for comp,mu in zip(Ref_Chem_components,Ref_Chem_Potentials) if comp in reference_stoichiometric.keys()])
         elif defined_components=='COMP' and type(reference_stoichiometric)==str:
             
             Ref_Chem_Potential_=Ref_Chem_Potentials.tolist()
@@ -384,7 +384,7 @@ def calc_difference_activity(activity_data: Sequence[Dict[str, Any]],
             else:
                 Chem_components=multi_eqdata.coords['component']    
                 Chem_Potential=[mu for chem_pot in Chem_Pot for comp,mu in zip(Chem_components,chem_pot) if comp==defined_components]
-            print('This is the reference chem potential',Ref_Chem_Potential,'These are the chem potentials',Chem_Potential)
+#            print('This is the reference chem potential',Ref_Chem_Potential,'These are the chem potentials',Chem_Potential)
             ln_activity= [(mu - Ref_Chem_Potential) for mu in Chem_Potential]
             calculated_data.append(ln_activity)   
             
@@ -551,52 +551,6 @@ def calculate_activity_error(activity_data: Sequence[Dict[str, Any]],
         # test_subsystem_activity_probability would trigger a NaN.
         return -np.inf
     return likelihood
-
-                        
-################JORGE IS EDITING THIS OUT 08-15-22########
-#def calculate_activity_error(dbf, comps, phases, datasets, parameters=None, phase_models=None, callables=None, data_weight=1.0) -> float:
-#    """
-#    Return the sum of square error from activity data
-#
-#    Parameters
-#    ----------
- #   dbf : pycalphad.Database
-#        Database to consider
-#    comps : list
-#        List of active component names
-#    phases : list
-#        List of phases to consider
-#    datasets : espei.utils.PickleableTinyDB
-#        Datasets that contain single phase data
-#    parameters : dict
-#        Dictionary of symbols that will be overridden in pycalphad.equilibrium
-#    phase_models : dict
-#        Phase models to pass to pycalphad calculations
-#    callables : dict
-#        Callables to pass to pycalphad
-#    data_weight : float
-#        Weight for standard deviation of activity measurements, dimensionless.
-#        Corresponds to the standard deviation of differences in chemical
-#        potential in typical measurements of activity, in J/mol.
-#
-#    Returns
-#    -------
-#    float
-#        A single float of the likelihood
-#
-#
-#    """
-#    residuals, weights = calculate_activity_residuals(dbf, comps, phases, datasets, parameters=None, phase_models=None, callables=None, data_weight=1.0)
-#    likelihood = np.sum(norm(0, scale=weights).logpdf(residuals))
-#    if np.isnan(likelihood):
-        # TODO: revisit this case and evaluate whether it is resonable for NaN
-        # to show up here. When this comment was written, the test
-        # test_subsystem_activity_probability would trigger a NaN.
-#        return -np.inf
-#    return likelihood
-
-
-
 
 
 # TODO: the __init__ method should pre-compute Model and PhaseRecord objects
