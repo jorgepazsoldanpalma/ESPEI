@@ -330,7 +330,7 @@ def calc_difference_activity(activity_data: Sequence[Dict[str, Any]],
         reference_stoichiometric=data['reference_stoich']
         ref_grid = calculate_(ref_species, ref_phases, ref_state_var
         , ref_models, ref_phase_records, pdens=50, fake_points=True)
-        Ref_multi_eqdata = equilibrium(database_, elements, ref_phases, ref_cond_dict, verbose=False, calc_opts={'pdens': 500})
+        Ref_multi_eqdata = equilibrium(database_, elements, ref_phases, ref_cond_dict, verbose=False, calc_opts={'pdens': 5000})
 ################################################################### 04-29-26 ############################################################################################
 #As mentioned in the previous comments, I will be using equilibrium function for activity error calculations since there seems to be an issue for some reason
 #It will make the ESPEI calculations slower but more accurate.
@@ -369,9 +369,11 @@ def calc_difference_activity(activity_data: Sequence[Dict[str, Any]],
             comp_cond=OrderedDict([(v.X(key[2:]), unpack_condition(cond[key])) for key,val in sorted(cond.items()) if key.startswith('X_')
             and key in dep_comp])
             cond_dict = OrderedDict(**dataset_state_var, **comp_cond)
-            multi_eqdata =_equilibrium(phase_records, 
-            cond_dict, grid)
-            Chem_Pot=multi_eqdata.MU.squeeze()
+######### Not sure why but the the best way to address activity is by doing equilibrium calculations rather than this _equilibrium function#####
+#            multi_eqdata =_equilibrium(phase_records, 
+#            cond_dict, grid)
+            multi_eqdata=equilibrium(database_, elements, dataset_phases, cond_dict, verbose=False, calc_opts={'pdens': 5000})
+            Chem_Pot=multi_eqdata.MU.values.squeeze()
             Chem_ele=multi_eqdata.component
             if defined_components=='COMP' and type(reference_stoichiometric)==dict:
                 Chem_components=list(sorted([i for i in reference_stoichiometric.keys()]))
