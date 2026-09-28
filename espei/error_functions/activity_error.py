@@ -208,7 +208,8 @@ def get_activity_data(dbf: Database, comps: Sequence[str],
         'ref_cond_dict':ref_cond_dict,
         'samples':samples,
         'database':dbf,
-        'elements':data_comps
+        'elements':data_comps,
+        'param_dict': parameters
         }
         
         activity_data.append(data_dict)
@@ -327,10 +328,13 @@ def calc_difference_activity(activity_data: Sequence[Dict[str, Any]],
         ref_models=data['ref_Chem_Potential'].models
         database_=data['database']
         elements=data['elements']
+        param_dict=data['param_dict']
         reference_stoichiometric=data['reference_stoich']
         ref_grid = calculate_(ref_species, ref_phases, ref_state_var
         , ref_models, ref_phase_records, pdens=50, fake_points=True)
-        Ref_multi_eqdata = equilibrium(database_, elements, ref_phases, ref_cond_dict, verbose=False, calc_opts={'pdens': 5000})
+        
+        new_param_dict={key_:parameters[count] for count,key_ in enumerate(param_dict.keys())}
+        Ref_multi_eqdata = equilibrium(database_, elements, ref_phases, ref_cond_dict, parameters=new_param_dict, verbose=False, calc_opts={'pdens': 5000})
 ################################################################### 04-29-26 ############################################################################################
 #As mentioned in the previous comments, I will be using equilibrium function for activity error calculations since there seems to be an issue for some reason
 #It will make the ESPEI calculations slower but more accurate.
@@ -372,7 +376,7 @@ def calc_difference_activity(activity_data: Sequence[Dict[str, Any]],
 ######### Not sure why but the the best way to address activity is by doing equilibrium calculations rather than this _equilibrium function#####
 #            multi_eqdata =_equilibrium(phase_records, 
 #            cond_dict, grid)
-            multi_eqdata=equilibrium(database_, elements, dataset_phases, cond_dict, verbose=False, calc_opts={'pdens': 5000})
+            multi_eqdata=equilibrium(database_, elements, dataset_phases, cond_dict, parameters=new_param_dict, verbose=False, calc_opts={'pdens': 5000})
             Chem_Pot=multi_eqdata.MU.values.squeeze()
             Chem_ele=multi_eqdata.component
             if defined_components=='COMP' and type(reference_stoichiometric)==dict:
